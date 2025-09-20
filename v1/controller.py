@@ -10,7 +10,6 @@ class GameController:
         self.view = view
         self.is_resolving = False
 
-        Window.bind(mouse_pos=self.on_mouse_pos)
         self.view.game_grid.bind(on_touch_down=self.on_grid_touch)
 
     def start(self):
@@ -80,21 +79,3 @@ class GameController:
         else:
             self.is_resolving = False
             self.view.is_animating = False
-
-    def on_mouse_pos(self, window, pos):
-        if not self.view.game_grid.collide_point(*pos):
-            self.view.diag_label.text = ""
-            return
-        
-        r, c = self.get_coords_from_pos(*pos)
-        if r is None:
-            return
-
-        brick = self.model.field[r][c]
-        color_name = 'N/A'
-        if brick.color_index is not None:
-            from model import COLOR_NAMES
-            color_name = COLOR_NAMES[brick.color_index]
-
-        diag_text = f"Coord: ({c}, {r})\nIntention: {brick.intention.name}\nColor: {color_name}"
-        self.view.diag_label.text = diag_text

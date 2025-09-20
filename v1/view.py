@@ -12,6 +12,30 @@ from kivy.properties import ObjectProperty
 
 from model import BRICK_COLORS, FIELD_SIZE, PLAY_AREA_START, PLAY_AREA_END, CellIntention, Brick
 
+BRICK_SKIN_PATH = 'v1/assets/NBricks.bmp'
+N_BRICK_COLORS = 10
+
+def _get_texture_coords(brick):
+    """Calculates texture coordinates for a given brick."""
+    if brick.intention == CellIntention.VOID:
+        return 0, 0, 0, 0
+
+    intention = brick.intention
+    u0, u1 = 0, 0.2
+    if intention == CellIntention.TO_RIGHT:
+        u0, u1 = 0.2, 0.4
+    elif intention == CellIntention.TO_UP:
+        u0, u1 = 0.8, 1.0
+    elif intention == CellIntention.TO_LEFT:
+        u0, u1 = 0.6, 0.8
+    elif intention == CellIntention.TO_DOWN:
+        u0, u1 = 0.4, 0.6
+
+    v_step = 1 / N_BRICK_COLORS
+    v0 = 1 - (brick.color_index + 1) * v_step
+    v1 = 1 - brick.color_index * v_step
+    return u0, u1, v0, v1
+
 ANIMATION_DURATION = 0.02
 Window.clearcolor = (0, 0, 0, 1)
 
@@ -39,12 +63,7 @@ class BrickWidget(Widget):
         
         # Now that the widget itself is initialized, set up its graphics
         with self.canvas:
-            self.border_color = Color(rgba=(0,0,0,1))
-            self.border_rect = Rectangle()
-            self.inner_color = Color(rgba=(0,0,0,1))
-            self.inner_rect = Rectangle()
-            self.arrow_color = Color(rgba=(1,1,1,0.8))
-            self.arrow = Triangle()
+            self.bg_rect = Rectangle(source=BRICK_SKIN_PATH)
             
         self.bind(pos=self._update_graphics, size=self._update_graphics)
 
@@ -56,50 +75,15 @@ class BrickWidget(Widget):
         self._update_visuals()
 
     def _update_graphics(self, *args):
-        self.border_rect.pos = self.pos
-        self.border_rect.size = self.size
-        
-        border_width = 2
-        self.inner_rect.pos = (self.x + border_width, self.y + border_width)
-        self.inner_rect.size = (self.width - 2 * border_width, self.height - 2 * border_width)
-        
-        self._update_arrow()
-
-    def _update_arrow(self):
-        if not self.brick_data:
-            return
-        intention = self.brick_data.intention
-        if intention.value not in range(1, 5):
-            self.arrow.points = [0,0,0,0,0,0]
-            return
-            
-        cx, cy = self.center_x, self.center_y
-        w, h = self.width, self.height
-        
-        if intention == CellIntention.TO_UP:
-            points = [cx, cy + h*0.3, cx - w*0.3, cy - h*0.2, cx + w*0.3, cy - h*0.2]
-        elif intention == CellIntention.TO_DOWN:
-            points = [cx, cy - h*0.3, cx - w*0.3, cy + h*0.2, cx + w*0.3, cy + h*0.2]
-        elif intention == CellIntention.TO_LEFT:
-            points = [cx - w*0.3, cy, cx + w*0.2, cy + h*0.3, cx + w*0.2, cy - h*0.3]
-        elif intention == CellIntention.TO_RIGHT:
-            points = [cx + w*0.3, cy, cx - w*0.2, cy + h*0.3, cx - w*0.2, cy - h*0.3]
-        else:
-            points = [0,0,0,0,0,0]
-        
-        self.arrow.points = points
+        self.bg_rect.pos = self.pos
+        self.bg_rect.size = self.size
 
     def _update_visuals(self):
         if self.brick_data and self.brick_data.intention != CellIntention.VOID:
-            color_tuple = BRICK_COLORS[self.brick_data.color_index]
-            darker_color_tuple = (*[c * 0.5 for c in color_tuple[:3]], color_tuple[3])
-            self.border_color.rgba = darker_color_tuple
-            self.inner_color.rgba = color_tuple
-            self.arrow_color.rgba = (1,1,1,0.8)
+            u0, u1, v0, v1 = _get_texture_coords(self.brick_data)
+            self.bg_rect.tex_coords = [u0, v0, u1, v0, u1, v1, u0, v1]
         else:
-            self.border_color.rgba = (0,0,0,0)
-            self.inner_color.rgba = (0,0,0,0)
-            self.arrow_color.rgba = (0,0,0,0)
+            self.bg_rect.tex_coords = [0,0,0,0,0,0,0,0] # Hide texture
         
         self._update_graphics()
 
@@ -153,6 +137,38 @@ class GameWidget(BoxLayout):
         ui_panel.add_widget(Widget()) # Spacer
         self.add_widget(ui_panel)
 
+        Window.bind(mouse_pos=self.on_mouse_pos)
+
+    def on_mouse_pos(self, window, pos):
+        if not self.game_grid.collide_point(*pos):
+            self.diag_label.text = ""
+            return
+        
+        from kivy.app import App
+        controller = App.get_running_app().controller
+        r, c = controller.get_coords_from_pos(*pos)
+        
+        if r is None:
+            self.diag_label.text = ""
+            return
+
+        model = controller.model
+        brick = model.field[r][c]
+        color_name = 'N/A'
+        if brick.color_index is not None:
+            from model import COLOR_NAMES
+            color_name = COLOR_NAMES[brick.color_index]
+        
+        # --- Texture coordinate calculation for diagnostics ---
+        u0, u1, v0, v1 = _get_texture_coords(brick)
+
+        diag_text = (f"Coord: ({c}, {r})\n"
+                     f"Intention: {brick.intention.name}\n"
+                     f"Color: {color_name} ({brick.color_index})\n"
+                     f"Skin U: ({u0:.1f}, {u1:.1f}), V: ({v0:.2f}, {v1:.2f})")
+        self.diag_label.text = diag_text
+
+
     def animate_events(self, removed_coords, moved_coords, on_complete_callback):
         """Animates brick removals and movements."""
         animations_to_run = []
@@ -170,9 +186,19 @@ class GameWidget(BoxLayout):
         cell_width = self.game_grid.width / FIELD_SIZE
         cell_height = self.game_grid.height / FIELD_SIZE
         
+        from kivy.app import App
+        model = App.get_running_app().controller.model
+
         for (start_r, start_c), (end_r, end_c) in moved_coords:
             widget = self.brick_widgets[start_r][start_c]
             if widget:
+                # Sync widget with model BEFORE animating
+                brick_data = model.field[end_r][end_c]
+                widget.brick_data = brick_data
+                # Manually trigger the visual update, because Kivy's ObjectProperty
+                # won't detect a change if the underlying object is mutated.
+                widget._update_visuals()
+
                 x = end_c * cell_width
                 y = (FIELD_SIZE - 1 - end_r) * cell_height
                 anim = Animation(pos=(x, y), duration=ANIMATION_DURATION)
