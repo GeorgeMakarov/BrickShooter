@@ -27,7 +27,13 @@ COLOR_NAMES = [
     'black', 'cyan', 'magenta', 'rose'
 ]
 
-class CellStatus(Enum):
+# --- Game Constants ---
+FIELD_SIZE = 16
+LAUNCH_ZONE_DEPTH = 3
+PLAY_AREA_START = LAUNCH_ZONE_DEPTH
+PLAY_AREA_END = FIELD_SIZE - LAUNCH_ZONE_DEPTH
+
+class CellIntention(Enum):
     VOID = 0
     TO_LEFT = 1
     TO_RIGHT = 2
@@ -36,20 +42,20 @@ class CellStatus(Enum):
     STAND = 5
 
 class Brick:
-    def __init__(self, status=CellStatus.VOID, color_index=None):
-        self.status = status
+    def __init__(self, intention=CellIntention.VOID, color_index=None):
+        self.intention = intention
         self.color_index = color_index
 
     @property
     def intention_vector(self):
         """Returns the movement intention as a [col, row] vector."""
-        if self.status == CellStatus.TO_LEFT:
+        if self.intention == CellIntention.TO_LEFT:
             return [-1, 0]
-        if self.status == CellStatus.TO_RIGHT:
+        if self.intention == CellIntention.TO_RIGHT:
             return [1, 0]
-        if self.status == CellStatus.TO_UP:
+        if self.intention == CellIntention.TO_UP:
             return [0, -1]
-        if self.status == CellStatus.TO_DOWN:
+        if self.intention == CellIntention.TO_DOWN:
             return [0, 1]
         return [0, 0] # for STAND and VOID
 
@@ -59,25 +65,47 @@ Window.clearcolor = (0, 0, 0, 1)
 class CellWidget(Widget):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.rect = Rectangle(pos=self.pos, size=self.size)
+        self.border_rect = Rectangle(pos=self.pos, size=self.size)
+        self.inner_rect = Rectangle(pos=self.pos, size=self.size)
         self.bind(pos=self.update_rect, size=self.update_rect)
         self.draw_background((0.2, 0.2, 0.2, 1))
         self.arrow = None
 
     def update_rect(self, *args):
-        self.rect.pos = self.pos
-        self.rect.size = self.size
+        self.border_rect.pos = self.pos
+        self.border_rect.size = self.size
+        border_width = 2
+        self.inner_rect.pos = (self.x + border_width, self.y + border_width)
+        self.inner_rect.size = (self.width - 2 * border_width, self.height - 2 * border_width)
 
     def draw_background(self, color_tuple):
         self.canvas.before.clear()
         with self.canvas.before:
-            Color(*color_tuple)
-            self.rect = Rectangle(pos=self.pos, size=self.size)
+            # For VOID cells, just draw a single black rectangle.
+            if color_tuple == (0, 0, 0, 1):
+                Color(*color_tuple)
+                self.border_rect = Rectangle(pos=self.pos, size=self.size)
+                self.inner_rect = Rectangle(pos=self.pos, size=(0, 0)) # Hide inner
+            else:
+                # For colored bricks, draw border and inner rectangle
+                darker_color_tuple = (*[c * 0.5 for c in color_tuple[:3]], color_tuple[3])
+                
+                # Border
+                Color(*darker_color_tuple)
+                self.border_rect = Rectangle(pos=self.pos, size=self.size)
+                
+                # Inner color
+                Color(*color_tuple)
+                border_width = 2
+                self.inner_rect = Rectangle(
+                    pos=(self.x + border_width, self.y + border_width),
+                    size=(self.width - 2 * border_width, self.height - 2 * border_width)
+                )
 
-    def draw_arrow(self, status):
-        """Draws a directional arrow based on the brick's status."""
+    def draw_arrow(self, intention):
+        """Draws a directional arrow based on the brick's intention."""
         self.clear_arrow()
-        if status in [CellStatus.STAND, CellStatus.VOID]:
+        if intention in [CellIntention.STAND, CellIntention.VOID]:
             return
 
         with self.canvas:
@@ -88,13 +116,13 @@ class CellWidget(Widget):
             w, h = self.width, self.height
             
             # Define points for a triangle
-            if status == CellStatus.TO_UP:
+            if intention == CellIntention.TO_UP:
                 points = [cx, cy + h*0.3, cx - w*0.3, cy - h*0.2, cx + w*0.3, cy - h*0.2]
-            elif status == CellStatus.TO_DOWN:
+            elif intention == CellIntention.TO_DOWN:
                 points = [cx, cy - h*0.3, cx - w*0.3, cy + h*0.2, cx + w*0.3, cy + h*0.2]
-            elif status == CellStatus.TO_LEFT:
+            elif intention == CellIntention.TO_LEFT:
                 points = [cx - w*0.3, cy, cx + w*0.2, cy + h*0.3, cx + w*0.2, cy - h*0.3]
-            elif status == CellStatus.TO_RIGHT:
+            elif intention == CellIntention.TO_RIGHT:
                 points = [cx + w*0.3, cy, cx - w*0.2, cy + h*0.3, cx - w*0.2, cy - h*0.3]
             else:
                 return # Should not happen
@@ -115,15 +143,15 @@ class GameWidget(BoxLayout):
         self._resolution_event = None
 
         # Game Logic Data
-        self.field = [[Brick() for _ in range(16)] for _ in range(16)]
-        self.cell_widgets = [[CellWidget() for _ in range(16)] for _ in range(16)]
+        self.field = [[Brick() for _ in range(FIELD_SIZE)] for _ in range(FIELD_SIZE)]
+        self.cell_widgets = [[CellWidget() for _ in range(FIELD_SIZE)] for _ in range(FIELD_SIZE)]
 
         # Game Area
         game_area = BoxLayout(orientation='vertical', size_hint=(0.75, 1))
-        self.game_grid = GridLayout(cols=16, rows=16)
+        self.game_grid = GridLayout(cols=FIELD_SIZE, rows=FIELD_SIZE)
 
-        for r in range(16):
-            for c in range(16):
+        for r in range(FIELD_SIZE):
+            for c in range(FIELD_SIZE):
                 self.game_grid.add_widget(self.cell_widgets[r][c])
 
         game_area.add_widget(self.game_grid)
@@ -166,6 +194,22 @@ class GameWidget(BoxLayout):
         
         self.new_game()
 
+    def get_coords_from_pos(self, x, y):
+        """Converts window coordinates to grid cell indices."""
+        # Convert window coordinates to grid-local coordinates
+        local_x = x - self.game_grid.x
+        local_y = y - self.game_grid.y
+
+        # Convert local coordinates to grid cell indices
+        c = int(local_x / (self.game_grid.width / FIELD_SIZE))
+        r = (FIELD_SIZE - 1) - int(local_y / (self.game_grid.height / FIELD_SIZE)) # Y is flipped
+
+        # Boundary check
+        if not (0 <= c < FIELD_SIZE and 0 <= r < FIELD_SIZE):
+            return None, None
+        
+        return r, c
+
     def draw_grid_lines(self, *args):
         """Draws the white grid lines, omitting corners and thickening boundaries."""
         self.game_grid.canvas.after.clear()
@@ -174,48 +218,40 @@ class GameWidget(BoxLayout):
             
             grid_x, grid_y = self.game_grid.pos
             grid_w, grid_h = self.game_grid.size
-            cell_w = grid_w / 16
-            cell_h = grid_h / 16
+            cell_w = grid_w / FIELD_SIZE
+            cell_h = grid_h / FIELD_SIZE
 
             # --- Thick boundary lines ---
             # Top boundary (at r=3)
-            y = grid_y + grid_h - 3*cell_h
-            Line(points=[grid_x + 3*cell_w, y, grid_x + 13*cell_w, y], width=1.5)
+            y = grid_y + grid_h - PLAY_AREA_START*cell_h
+            Line(points=[grid_x + PLAY_AREA_START*cell_w, y, grid_x + PLAY_AREA_END*cell_w, y], width=1.5)
             # Bottom boundary (at r=13)
-            y = grid_y + grid_h - 13*cell_h
-            Line(points=[grid_x + 3*cell_w, y, grid_x + 13*cell_w, y], width=1.5)
+            y = grid_y + grid_h - PLAY_AREA_END*cell_h
+            Line(points=[grid_x + PLAY_AREA_START*cell_w, y, grid_x + PLAY_AREA_END*cell_w, y], width=1.5)
             # Left boundary (at c=3)
-            x = grid_x + 3*cell_w
-            Line(points=[x, grid_y + grid_h - 3*cell_h, x, grid_y + grid_h - 13*cell_h], width=1.5)
+            x = grid_x + PLAY_AREA_START*cell_w
+            Line(points=[x, grid_y + grid_h - PLAY_AREA_START*cell_h, x, grid_y + grid_h - PLAY_AREA_END*cell_h], width=1.5)
             # Right boundary (at c=13)
-            x = grid_x + 13*cell_w
-            Line(points=[x, grid_y + grid_h - 3*cell_h, x, grid_y + grid_h - 13*cell_h], width=1.5)
+            x = grid_x + PLAY_AREA_END*cell_w
+            Line(points=[x, grid_y + grid_h - PLAY_AREA_START*cell_h, x, grid_y + grid_h - PLAY_AREA_END*cell_h], width=1.5)
 
             # --- Thin inner lines ---
             # Vertical
-            for c in range(4, 13):
+            for c in range(PLAY_AREA_START + 1, PLAY_AREA_END):
                 x = grid_x + c*cell_w
-                Line(points=[x, grid_y + grid_h - 3*cell_h, x, grid_y + grid_h - 13*cell_h], width=1)
+                Line(points=[x, grid_y + grid_h - PLAY_AREA_START*cell_h, x, grid_y + grid_h - PLAY_AREA_END*cell_h], width=1)
             # Horizontal
-            for r in range(4, 13):
+            for r in range(PLAY_AREA_START + 1, PLAY_AREA_END):
                 y = grid_y + grid_h - r*cell_h
-                Line(points=[grid_x + 3*cell_w, y, grid_x + 13*cell_w, y], width=1)
+                Line(points=[grid_x + PLAY_AREA_START*cell_w, y, grid_x + PLAY_AREA_END*cell_w, y], width=1)
 
     def on_grid_touch(self, instance, touch):
         """Called when the grid is clicked."""
         if not self.game_grid.collide_point(*touch.pos):
             return
 
-        # Convert window coordinates to grid-local coordinates
-        local_x = touch.pos[0] - self.game_grid.x
-        local_y = touch.pos[1] - self.game_grid.y
-
-        # Convert local coordinates to grid cell indices
-        c = int(local_x / (self.game_grid.width / 16))
-        r = 15 - int(local_y / (self.game_grid.height / 16)) # Y is flipped
-
-        # Boundary check
-        if not (0 <= c < 16 and 0 <= r < 16):
+        r, c = self.get_coords_from_pos(*touch.pos)
+        if r is None:
             return
 
         print(f"Grid touched at ({c}, {r})")
@@ -228,102 +264,91 @@ class GameWidget(BoxLayout):
         play area, is VOID.
         """
         shot_fired = False
-        # Left launcher
-        if c == 2 and (3 <= r < 13):
-            print(f"Left launcher trigger clicked at row {r}")
-            if self.field[r][3].status == CellStatus.VOID:
-                if self._is_obstacle_in_path(r, 3, CellStatus.TO_RIGHT):
-                    for i in range(2, -1, -1):
-                        brick = self.field[r][i]
-                        if brick.status != CellStatus.VOID:
-                            print(f"  - Found ammo at ({i}, {r}). Status: {brick.status.name}")
-                            brick.status = CellStatus.TO_RIGHT
-                            print(f"  - Changed status to {brick.status.name}")
-                            shot_fired = True
-                            break
-                else:
-                    print("  - Shot blocked. Path is completely clear.")
-            else:
-                print("  - Shot blocked. Play area cell is not VOID.")
-        
-        # Right launcher
-        elif c == 13 and (3 <= r < 13):
-            print(f"Right launcher trigger clicked at row {r}")
-            if self.field[r][12].status == CellStatus.VOID:
-                if self._is_obstacle_in_path(r, 12, CellStatus.TO_LEFT):
-                    for i in range(13, 16):
-                        brick = self.field[r][i]
-                        if brick.status != CellStatus.VOID:
-                            print(f"  - Found ammo at ({i}, {r}). Status: {brick.status.name}")
-                            brick.status = CellStatus.TO_LEFT
-                            print(f"  - Changed status to {brick.status.name}")
-                            shot_fired = True
-                            break
-                else:
-                    print("  - Shot blocked. Path is completely clear.")
-            else:
-                print("  - Shot blocked. Play area cell is not VOID.")
-
-        # Top launcher
-        elif r == 2 and (3 <= c < 13):
-            print(f"Top launcher trigger clicked at col {c}")
-            if self.field[3][c].status == CellStatus.VOID:
-                if self._is_obstacle_in_path(3, c, CellStatus.TO_DOWN):
-                    for i in range(2, -1, -1):
-                        brick = self.field[i][c]
-                        if brick.status != CellStatus.VOID:
-                            print(f"  - Found ammo at ({c}, {i}). Status: {brick.status.name}")
-                            brick.status = CellStatus.TO_DOWN
-                            print(f"  - Changed status to {brick.status.name}")
-                            shot_fired = True
-                            break
-                else:
-                    print("  - Shot blocked. Path is completely clear.")
-            else:
-                print("  - Shot blocked. Play area cell is not VOID.")
-
-        # Bottom launcher
-        elif r == 13 and (3 <= c < 13):
-            print(f"Bottom launcher trigger clicked at col {c}")
-            if self.field[12][c].status == CellStatus.VOID:
-                if self._is_obstacle_in_path(12, c, CellStatus.TO_UP):
-                    for i in range(13, 16):
-                        brick = self.field[i][c]
-                        if brick.status != CellStatus.VOID:
-                            print(f"  - Found ammo at ({c}, {i}). Status: {brick.status.name}")
-                            brick.status = CellStatus.TO_UP
-                            print(f"  - Changed status to {brick.status.name}")
-                            shot_fired = True
-                            break
-                else:
-                    print("  - Shot blocked. Path is completely clear.")
-            else:
-                print("  - Shot blocked. Play area cell is not VOID.")
+        # Left launcher (c=2, r=3..12) -> shoots RIGHT
+        if c == (PLAY_AREA_START - 1) and (PLAY_AREA_START <= r < PLAY_AREA_END):
+            shot_fired = self._handle_shot(r, c, 'left')
+        # Right launcher (c=13, r=3..12) -> shoots LEFT
+        elif c == PLAY_AREA_END and (PLAY_AREA_START <= r < PLAY_AREA_END):
+            shot_fired = self._handle_shot(r, c, 'right')
+        # Top launcher (r=2, c=3..12) -> shoots DOWN
+        elif r == (PLAY_AREA_START - 1) and (PLAY_AREA_START <= c < PLAY_AREA_END):
+            shot_fired = self._handle_shot(r, c, 'top')
+        # Bottom launcher (r=13, c=3..12) -> shoots UP
+        elif r == PLAY_AREA_END and (PLAY_AREA_START <= c < PLAY_AREA_END):
+            shot_fired = self._handle_shot(r, c, 'bottom')
 
         if shot_fired:
             print("Shot fired, starting resolution cycle...")
             self.start_resolution_cycle()
+
+    def _handle_shot(self, r, c, launcher_id):
+        """Helper function to process a shot from a specific launcher."""
+        
+        # 1. Define launcher-specific parameters
+        if launcher_id == 'left':
+            print(f"Left launcher trigger clicked at row {r}")
+            target_r, target_c = r, PLAY_AREA_START
+            direction = CellIntention.TO_RIGHT
+            ammo_indices = [(r, i) for i in range(LAUNCH_ZONE_DEPTH - 1, -1, -1)]
+        elif launcher_id == 'right':
+            print(f"Right launcher trigger clicked at row {r}")
+            target_r, target_c = r, PLAY_AREA_END - 1
+            direction = CellIntention.TO_LEFT
+            ammo_indices = [(r, i) for i in range(PLAY_AREA_END, FIELD_SIZE)]
+        elif launcher_id == 'top':
+            print(f"Top launcher trigger clicked at col {c}")
+            target_r, target_c = PLAY_AREA_START, c
+            direction = CellIntention.TO_DOWN
+            ammo_indices = [(i, c) for i in range(LAUNCH_ZONE_DEPTH - 1, -1, -1)]
+        elif launcher_id == 'bottom':
+            print(f"Bottom launcher trigger clicked at col {c}")
+            target_r, target_c = PLAY_AREA_END - 1, c
+            direction = CellIntention.TO_UP
+            ammo_indices = [(i, c) for i in range(PLAY_AREA_END, FIELD_SIZE)]
+        else:
+            return False
+
+        # 2. Check if the target cell in the play area is VOID
+        if self.field[target_r][target_c].intention != CellIntention.VOID:
+            print("  - Shot blocked. Play area cell is not VOID.")
+            return False
+
+        # 3. Check if there's a valid path (at least one obstacle)
+        if not self._is_obstacle_in_path(target_r, target_c, direction):
+            print("  - Shot blocked. Path is completely clear.")
+            return False
+
+        # 4. Find the first available ammo and launch it
+        for ammo_r, ammo_c in ammo_indices:
+            brick = self.field[ammo_r][ammo_c]
+            if brick.intention != CellIntention.VOID:
+                print(f"  - Found ammo at ({ammo_c}, {ammo_r}). Intention: {brick.intention.name}")
+                brick.intention = direction
+                print(f"  - Changed intention to {brick.intention.name}")
+                return True # Shot fired successfully
+
+        return False # Should not be reached if logic is correct
 
     def _is_obstacle_in_path(self, r, c, direction):
         """
         Checks if there is at least one non-VOID brick in a given direction
         from a starting point (exclusive) to the edge of the play area.
         """
-        if direction == CellStatus.TO_RIGHT:
-            for i in range(c + 1, 13):
-                if self.field[r][i].status != CellStatus.VOID:
+        if direction == CellIntention.TO_RIGHT:
+            for i in range(c + 1, PLAY_AREA_END):
+                if self.field[r][i].intention != CellIntention.VOID:
                     return True
-        elif direction == CellStatus.TO_LEFT:
-            for i in range(c - 1, 2, -1):
-                if self.field[r][i].status != CellStatus.VOID:
+        if direction == CellIntention.TO_LEFT:
+            for i in range(c - 1, PLAY_AREA_START - 1, -1):
+                if self.field[r][i].intention != CellIntention.VOID:
                     return True
-        elif direction == CellStatus.TO_DOWN:
-            for i in range(r + 1, 13):
-                if self.field[i][c].status != CellStatus.VOID:
+        if direction == CellIntention.TO_DOWN:
+            for i in range(r + 1, PLAY_AREA_END):
+                if self.field[i][c].intention != CellIntention.VOID:
                     return True
-        elif direction == CellStatus.TO_UP:
-            for i in range(r - 1, 2, -1):
-                if self.field[i][c].status != CellStatus.VOID:
+        if direction == CellIntention.TO_UP:
+            for i in range(r - 1, PLAY_AREA_START - 1, -1):
+                if self.field[i][c].intention != CellIntention.VOID:
                     return True
         return False
 
@@ -345,23 +370,20 @@ class GameWidget(BoxLayout):
         Represents one tick of the resolution cycle.
         It tries to resolve movement, then matches, until the board is stable.
         """
+        # Per the design document, match resolution should happen *before* movement.
+        matched = self.find_and_remove_groups()
         moved = self.movement_resolution_step()
-
-        # Future calls to match resolution will go here.
+        crossed = self.handle_board_crossers()
         
         self.draw_field()
 
         # If nothing happened in this step, the board is stable.
-        if not moved: # and not matched
+        if not moved and not matched and not crossed:
             self.stop_resolution_cycle()
             
             # --- STABILITY CHECK ---
             # Now that the board is visually stable, we process non-animated logic.
-            crossed = self.handle_board_crossers()
-            
-            if crossed:
-                self.start_resolution_cycle()
-                return
+            # Board crossing is now handled above as part of the main cycle.
             
             # If nothing crossed, try refilling the launch zones.
             refilled = self.refill_launch_zones()
@@ -376,51 +398,44 @@ class GameWidget(BoxLayout):
         Returns True if any bricks were created or moved.
         """
         was_changed = False
-        # Top queues (rows 0, 1, 2 for cols 3-12)
-        for c in range(3, 13):
-            for r in range(2, -1, -1): # Scan inside-out: 2, 1, 0
-                if self.field[r][c].status == CellStatus.VOID:
-                    # Shift bricks from further out to fill the void
-                    for r_shift in range(r, 0, -1): # r, r-1, ... 1
-                        self.field[r_shift][c] = self.field[r_shift - 1][c]
-                    self.field[0][c] = Brick(status=CellStatus.STAND, color_index=random.randint(0, 8))
-                    was_changed = True
-                    break # Move to the next column once a void is filled
-        
-        # Bottom queues (rows 13, 14, 15 for cols 3-12)
-        for c in range(3, 13):
-            for r in range(13, 16): # Scan inside-out: 13, 14, 15
-                if self.field[r][c].status == CellStatus.VOID:
-                    for r_shift in range(r, 15): # r, r+1, ... 14
-                        self.field[r_shift][c] = self.field[r_shift + 1][c]
-                    self.field[15][c] = Brick(status=CellStatus.STAND, color_index=random.randint(0, 8))
-                    was_changed = True
-                    break
 
-        # Left queues (cols 0, 1, 2 for rows 3-12)
-        for r in range(3, 13):
-            for c in range(2, -1, -1): # Scan inside-out: 2, 1, 0
-                if self.field[r][c].status == CellStatus.VOID:
-                    for c_shift in range(c, 0, -1): # c, c-1, ... 1
-                        self.field[r][c_shift] = self.field[r][c_shift - 1]
-                    self.field[r][0] = Brick(status=CellStatus.STAND, color_index=random.randint(0, 8))
-                    was_changed = True
-                    break
+        # Define all 40 queues
+        top_queues = [[(r, c) for r in range(LAUNCH_ZONE_DEPTH - 1, -1, -1)] for c in range(PLAY_AREA_START, PLAY_AREA_END)]
+        bottom_queues = [[(r, c) for r in range(PLAY_AREA_END, FIELD_SIZE)] for c in range(PLAY_AREA_START, PLAY_AREA_END)]
+        left_queues = [[(r, c) for c in range(LAUNCH_ZONE_DEPTH - 1, -1, -1)] for r in range(PLAY_AREA_START, PLAY_AREA_END)]
+        right_queues = [[(r, c) for c in range(PLAY_AREA_END, FIELD_SIZE)] for r in range(PLAY_AREA_START, PLAY_AREA_END)]
+        all_queues = top_queues + bottom_queues + left_queues + right_queues
 
-        # Right queues (cols 13, 14, 15 for rows 3-12)
-        for r in range(3, 13):
-            for c in range(13, 16): # Scan inside-out: 13, 14, 15
-                if self.field[r][c].status == CellStatus.VOID:
-                    for c_shift in range(c, 15): # c, c+1, ... 14
-                        self.field[r][c_shift] = self.field[r][c_shift + 1]
-                    self.field[r][15] = Brick(status=CellStatus.STAND, color_index=random.randint(0, 8))
-                    was_changed = True
-                    break
+        for queue in all_queues:
+            if self._refill_queue(queue):
+                was_changed = True
         
         if was_changed:
             self.draw_field()
 
         return was_changed
+
+    def _refill_queue(self, queue_coords):
+        """
+        Refills a single launch queue if it has a void.
+        queue_coords is a list of (r, c) tuples, from innermost to outermost.
+        Returns True if the queue was modified.
+        """
+        for i, (r, c) in enumerate(queue_coords):
+            if self.field[r][c].intention == CellIntention.VOID:
+                # Shift bricks from further out to fill the void
+                for j in range(i, len(queue_coords) - 1):
+                    r_dest, c_dest = queue_coords[j]
+                    r_src, c_src = queue_coords[j + 1]
+                    self.field[r_dest][c_dest] = self.field[r_src][c_src]
+                
+                # Create a new brick at the outermost cell
+                r_new, c_new = queue_coords[-1]
+                self.field[r_new][c_new] = Brick(intention=CellIntention.STAND, color_index=random.randint(0, 8))
+                
+                return True # Queue was changed
+        return False
+
 
     def handle_board_crossers(self):
         """
@@ -429,80 +444,94 @@ class GameWidget(BoxLayout):
         Returns True if any bricks were moved.
         """
         was_changed = False
-        # Check top row of play area for bricks going UP
-        for c in range(3, 13):
-            brick = self.field[3][c]
-            if brick.status == CellStatus.TO_UP:
-                print(f"Brick at ({c}, 3) crossed top boundary.")
-                # Shift the entire destination queue down
-                for r_shift in range(0, 2): # r=0, 1
-                    self.field[r_shift][c] = self.field[r_shift + 1][c]
-                # Place the crossing brick at the innermost cell
-                self.field[2][c] = brick
-                brick.status = CellStatus.STAND
-                # Clear the source cell
-                self.field[3][c] = Brick()
-                was_changed = True
-
-        # Check bottom row of play area for bricks going DOWN
-        for c in range(3, 13):
-            brick = self.field[12][c]
-            if brick.status == CellStatus.TO_DOWN:
-                print(f"Brick at ({c}, 12) crossed bottom boundary.")
-                for r_shift in range(15, 13, -1): # r=15, 14
-                    self.field[r_shift][c] = self.field[r_shift - 1][c]
-                self.field[13][c] = brick
-                brick.status = CellStatus.STAND
-                self.field[12][c] = Brick()
-                was_changed = True
-
-        # Check left col of play area for bricks going LEFT
-        for r in range(3, 13):
-            brick = self.field[r][3]
-            if brick.status == CellStatus.TO_LEFT:
-                print(f"Brick at (3, {r}) crossed left boundary.")
-                for c_shift in range(0, 2): # c=0, 1
-                    self.field[r][c_shift] = self.field[r][c_shift + 1]
-                self.field[r][2] = brick
-                brick.status = CellStatus.STAND
-                self.field[r][3] = Brick()
-                was_changed = True
-
-        # Check right col of play area for bricks going RIGHT
-        for r in range(3, 13):
-            brick = self.field[r][12]
-            if brick.status == CellStatus.TO_RIGHT:
-                print(f"Brick at (12, {r}) crossed right boundary.")
-                for c_shift in range(15, 13, -1): # c=15, 14
-                    self.field[r][c_shift] = self.field[r][c_shift - 1]
-                self.field[r][13] = brick
-                brick.status = CellStatus.STAND
-                self.field[r][12] = Brick()
-                was_changed = True
         
+        # Define crossing checks: (source_row/col, direction, dest_queue_fetcher)
+        checks = [
+            # Top boundary -> bricks go UP
+            {'line': [(PLAY_AREA_START, c) for c in range(PLAY_AREA_START, PLAY_AREA_END)], 
+             'direction': CellIntention.TO_UP,
+             'dest_queue': lambda r, c: [(i, c) for i in range(LAUNCH_ZONE_DEPTH - 1, -1, -1)]},
+            # Bottom boundary -> bricks go DOWN
+            {'line': [(PLAY_AREA_END - 1, c) for c in range(PLAY_AREA_START, PLAY_AREA_END)],
+             'direction': CellIntention.TO_DOWN,
+             'dest_queue': lambda r, c: [(i, c) for i in range(PLAY_AREA_END, FIELD_SIZE)]},
+            # Left boundary -> bricks go LEFT
+            {'line': [(r, PLAY_AREA_START) for r in range(PLAY_AREA_START, PLAY_AREA_END)],
+             'direction': CellIntention.TO_LEFT,
+             'dest_queue': lambda r, c: [(r, i) for i in range(LAUNCH_ZONE_DEPTH - 1, -1, -1)]},
+            # Right boundary -> bricks go RIGHT
+            {'line': [(r, PLAY_AREA_END - 1) for r in range(PLAY_AREA_START, PLAY_AREA_END)],
+             'direction': CellIntention.TO_RIGHT,
+             'dest_queue': lambda r, c: [(r, i) for i in range(PLAY_AREA_END, FIELD_SIZE)]},
+        ]
+
+        for check in checks:
+            for r_src, c_src in check['line']:
+                if self._handle_crossing_brick(r_src, c_src, check['direction'], check['dest_queue']):
+                    was_changed = True
+
         if was_changed:
             self.draw_field()
 
         return was_changed
 
+    def _handle_crossing_brick(self, r_src, c_src, direction, dest_queue_fetcher):
+        """
+        Handles a single potential crossing brick. If it crosses, it moves the
+        destination queue and places the brick. Returns True if a brick crossed.
+        """
+        brick = self.field[r_src][c_src]
+        if brick.intention != direction:
+            return False
+
+        print(f"Brick at ({c_src}, {r_src}) crossed boundary moving {direction.name}.")
+        
+        dest_queue = dest_queue_fetcher(r_src, c_src)
+
+        # Shift the destination queue to make room
+        for i in range(len(dest_queue) - 1, 0, -1):
+            r_dest, c_dest = dest_queue[i]
+            r_prev, c_prev = dest_queue[i - 1]
+            self.field[r_dest][c_dest] = self.field[r_prev][c_prev]
+
+        # Place the crossing brick at the innermost cell of the destination queue
+        r_innermost, c_innermost = dest_queue[0]
+        self.field[r_innermost][c_innermost] = brick
+        brick.intention = CellIntention.STAND
+        
+        # Clear the source cell
+        self.field[r_src][c_src] = Brick()
+        
+        return True
+
     def movement_resolution_step(self):
         """
-        Performs one pass of movement for all bricks with directional status.
+        Performs one pass of movement for all bricks with directional intention.
         Returns True if any brick was moved, False otherwise.
         """
         moves = [] # List of ((from_r, from_c), (to_r, to_c))
         
-        for r in range(16):
-            for c in range(16):
+        for r in range(FIELD_SIZE):
+            for c in range(FIELD_SIZE):
                 brick = self.field[r][c]
-                if brick.status.value in range(1, 5): # TO_LEFT, TO_RIGHT, TO_UP, TO_DOWN
+                if brick.intention.value in range(1, 5): # TO_LEFT, TO_RIGHT, TO_UP, TO_DOWN
                     vec = brick.intention_vector
                     tr, tc = r + vec[1], c + vec[0]
 
                     # Diagnostic print
-                    print(f"Checking brick at ({c}, {r}) with status {brick.status.name}. Target: ({tc}, {tr})")
+                    print(f"Checking brick at ({c}, {r}) with intention {brick.intention.name}. Target: ({tc}, {tr})")
 
-                    if 0 <= tr < 16 and 0 <= tc < 16 and self.field[tr][tc].status == CellStatus.VOID:
+                    # Prevent bricks from moving directly from the play area to a launch zone.
+                    # They must stop at the boundary and be processed by handle_board_crossers.
+                    is_in_play_area = (PLAY_AREA_START <= r < PLAY_AREA_END and
+                                       PLAY_AREA_START <= c < PLAY_AREA_END)
+                    is_target_outside = not (PLAY_AREA_START <= tr < PLAY_AREA_END and
+                                             PLAY_AREA_START <= tc < PLAY_AREA_END)
+
+                    if is_in_play_area and is_target_outside:
+                        continue
+
+                    if 0 <= tr < FIELD_SIZE and 0 <= tc < FIELD_SIZE and self.field[tr][tc].intention == CellIntention.VOID:
                         moves.append(((r, c), (tr, tc)))
         
         # Diagnostic print
@@ -512,7 +541,6 @@ class GameWidget(BoxLayout):
         if not moves:
             return False
 
-        # For now, we assume no collisions (two bricks moving to the same cell).
         # We can directly apply the moves by swapping.
         for source, dest in moves:
             sr, sc = source
@@ -522,6 +550,74 @@ class GameWidget(BoxLayout):
 
         return True
 
+    def find_and_remove_groups(self, min_group_size=3):
+        """
+        Finds and removes groups of same-colored bricks of size >= min_group_size.
+        Returns True if any groups were removed, False otherwise.
+        """
+        was_changed = False
+        visited = [[False for _ in range(FIELD_SIZE)] for _ in range(FIELD_SIZE)]
+
+        for r in range(PLAY_AREA_START, PLAY_AREA_END):
+            for c in range(PLAY_AREA_START, PLAY_AREA_END):
+                if visited[r][c]:
+                    continue
+
+                brick = self.field[r][c]
+                if brick.intention == CellIntention.VOID:
+                    continue
+
+                color_index = brick.color_index
+                if color_index is None:
+                    continue
+                
+                group = self._find_group(r, c, color_index, visited)
+
+                # Mark all bricks in the found group as visited
+                for gr, gc in group:
+                    visited[gr][gc] = True
+                
+                if len(group) >= min_group_size:
+                    print(f"Found group of size {len(group)} at ({c}, {r}). Removing.")
+                    for gr, gc in group:
+                        self.field[gr][gc] = Brick() # Set to VOID
+                    was_changed = True
+
+        return was_changed
+
+    def _find_group(self, start_r, start_c, color_index, visited):
+        """
+        Performs a BFS to find all connected bricks of the same color.
+        Returns a list of (r, c) tuples for the group.
+        """
+        q = [(start_r, start_c)]
+        group = []
+        visited_in_search = set()
+        visited_in_search.add((start_r, start_c))
+        visited[start_r][start_c] = True
+
+
+        while q:
+            r, c = q.pop(0)
+            group.append((r, c))
+
+            for dr, dc in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
+                nr, nc = r + dr, c + dc
+
+                if not (PLAY_AREA_START <= nr < PLAY_AREA_END and PLAY_AREA_START <= nc < PLAY_AREA_END):
+                    continue
+                
+                if (nr, nc) in visited_in_search:
+                    continue
+
+                neighbor_brick = self.field[nr][nc]
+                if not visited[nr][nc] and neighbor_brick.intention != CellIntention.VOID and neighbor_brick.color_index == color_index:
+                    visited_in_search.add((nr, nc))
+                    visited[nr][nc] = True
+                    q.append((nr, nc))
+
+        return group
+
     def on_mouse_pos(self, window, pos):
         """Called when the mouse is moved."""
         # Check if mouse is over the grid
@@ -529,16 +625,8 @@ class GameWidget(BoxLayout):
             self.diag_label.text = ""
             return
         
-        # Convert window coordinates to grid-local coordinates
-        local_x = pos[0] - self.game_grid.x
-        local_y = pos[1] - self.game_grid.y
-
-        # Convert local coordinates to grid cell indices
-        c = int(local_x / (self.game_grid.width / 16))
-        r = 15 - int(local_y / (self.game_grid.height / 16)) # Y is flipped
-
-        # Boundary check
-        if not (0 <= c < 16 and 0 <= r < 16):
+        r, c = self.get_coords_from_pos(*pos)
+        if r is None:
             return
 
         brick = self.field[r][c]
@@ -546,56 +634,48 @@ class GameWidget(BoxLayout):
         if brick.color_index is not None:
             color_name = COLOR_NAMES[brick.color_index]
 
-        diag_text = f"Coord: ({c}, {r})\nStatus: {brick.status.name}\nColor: {color_name}"
+        diag_text = f"Coord: ({c}, {r})\nIntention: {brick.intention.name}\nColor: {color_name}"
         self.diag_label.text = diag_text
 
     def new_game(self, level=0):
         """Initializes the game board for a new game."""
-        self.field = [[Brick() for _ in range(16)] for _ in range(16)]
+        self.field = [[Brick() for _ in range(FIELD_SIZE)] for _ in range(FIELD_SIZE)]
 
-        # Top launch zone
-        for c in range(3, 13):
-            for r in range(3):
-                self.field[r][c] = Brick(status=CellStatus.STAND, color_index=random.randint(0, 8))
-        
-        # Bottom launch zone
-        for c in range(3, 13):
-            for r in range(13, 16):
-                self.field[r][c] = Brick(status=CellStatus.STAND, color_index=random.randint(0, 8))
-
-        # Left launch zone
-        for c in range(3):
-            for r in range(3, 13):
-                self.field[r][c] = Brick(status=CellStatus.STAND, color_index=random.randint(0, 8))
-
-        # Right launch zone
-        for c in range(13, 16):
-            for r in range(3, 13):
-                self.field[r][c] = Brick(status=CellStatus.STAND, color_index=random.randint(0, 8))
+        # Define launch zones and fill them
+        zones = [
+            {'rows': range(LAUNCH_ZONE_DEPTH), 'cols': range(PLAY_AREA_START, PLAY_AREA_END)},      # Top
+            {'rows': range(PLAY_AREA_END, FIELD_SIZE), 'cols': range(PLAY_AREA_START, PLAY_AREA_END)}, # Bottom
+            {'rows': range(PLAY_AREA_START, PLAY_AREA_END), 'cols': range(LAUNCH_ZONE_DEPTH)},      # Left
+            {'rows': range(PLAY_AREA_START, PLAY_AREA_END), 'cols': range(PLAY_AREA_END, FIELD_SIZE)}  # Right
+        ]
+        for zone in zones:
+            for r in zone['rows']:
+                for c in zone['cols']:
+                    self.field[r][c] = Brick(intention=CellIntention.STAND, color_index=random.randint(0, 8))
 
         # Add random obstacles to the play area
         num_obstacles = 2
         placed_obstacles = 0
         while placed_obstacles < num_obstacles:
-            r, c = random.randint(3, 12), random.randint(3, 12)
-            if self.field[r][c].status == CellStatus.VOID:
-                self.field[r][c] = Brick(status=CellStatus.STAND, color_index=random.randint(0, 8))
+            r, c = random.randint(PLAY_AREA_START, PLAY_AREA_END - 1), random.randint(PLAY_AREA_START, PLAY_AREA_END - 1)
+            if self.field[r][c].intention == CellIntention.VOID:
+                self.field[r][c] = Brick(intention=CellIntention.STAND, color_index=random.randint(0, 8))
                 placed_obstacles += 1
 
         self.draw_field()
 
     def draw_field(self):
         """Updates the visual grid to match the logical field."""
-        for r in range(16):
-            for c in range(16):
+        for r in range(FIELD_SIZE):
+            for c in range(FIELD_SIZE):
                 brick = self.field[r][c]
                 cell = self.cell_widgets[r][c]
-                if brick.status == CellStatus.VOID:
+                if brick.intention == CellIntention.VOID:
                     cell.draw_background((0, 0, 0, 1)) # Black for empty
                 else:
                     cell.draw_background(BRICK_COLORS[brick.color_index])
                 
-                cell.draw_arrow(brick.status)
+                cell.draw_arrow(brick.intention)
 
 
 class BrickShooterApp(App):

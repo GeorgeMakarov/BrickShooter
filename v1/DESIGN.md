@@ -47,7 +47,7 @@ The game is turn-based from the player's perspective, but the consequences of a 
 2.  **Movement Resolution**:
     -   The engine scans every brick on the board.
     -   For each brick with a directional `status` (e.g., `TO_RIGHT`):
-        -   **Collision Check**: It checks the adjacent cell in its direction of gravity. If that cell contains a brick with the exact opposite gravity (e.g., `TO_LEFT`), both bricks have their `status` changed to `STAND`.
+        -   **Collision Check**: It checks the adjacent cell in its direction of gravity. If that cell is occupied by another brick (regardless of that brick's intention), its path is blocked and it will not move this tick. Its movement intention is preserved. If the blocking brick is later removed (e.g. by a match), this brick will continue moving as intended.
         -   **Movement Check**: If the adjacent cell is `VOID`, the engine "moves" the brick by swapping the `Brick` object in the grid with the `VOID` one.
         -   **Cross-Board Travel**: If a moving brick reaches the far edge of the board, it enters the launch zone on that side, pushing the existing bricks and taking the last available spot.
 3.  **Loop Continuation**: If any brick was moved or deleted during this cycle, the cycle runs again from Step 1.
