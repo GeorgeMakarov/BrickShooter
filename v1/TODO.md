@@ -52,3 +52,6 @@
 - [ ] **Connect UI Buttons**:
     - [ ] Make the "New Game" button call `new_game`.
     - [ ] Implement and connect an "Undo" button (optional, can be complex).
+
+## Phase 5: Refactoring
+- [x] **Code Cleanup**: Removed duplicate `on_mouse_pos` and texture coordinate logic.

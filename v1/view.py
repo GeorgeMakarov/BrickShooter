@@ -3,6 +3,7 @@ from kivy.uix.button import Button
 from kivy.uix.gridlayout import GridLayout
 from kivy.uix.label import Label
 from kivy.uix.widget import Widget
+from kivy.uix.popup import Popup
 from kivy.uix.floatlayout import FloatLayout
 from kivy.uix.relativelayout import RelativeLayout
 from kivy.graphics import Color, Rectangle, Triangle, Line
@@ -117,10 +118,10 @@ class GameWidget(BoxLayout):
         
         # UI Panel
         ui_panel = BoxLayout(orientation='vertical', size_hint=(0.25, 1), spacing=10, padding=10)
-        score_label = Label(text="Score: 0", size_hint_y=None, height=40)
+        self.score_label = Label(text="Score: 0", size_hint_y=None, height=40)
         level_label = Label(text="Level: 0", size_hint_y=None, height=40)
-        new_game_button = Button(text="New Game", size_hint_y=None, height=50)
-        undo_button = Button(text="Undo", size_hint_y=None, height=50)
+        self.new_game_button = Button(text="New Game", size_hint_y=None, height=50)
+        self.undo_button = Button(text="Undo", size_hint_y=None, height=50)
         self.diag_label = Label(
             text='Hover over grid...', 
             size_hint_y=None, 
@@ -129,15 +130,41 @@ class GameWidget(BoxLayout):
             valign='top'
         )
         self.diag_label.bind(size=self.diag_label.setter('text_size'))
-        ui_panel.add_widget(score_label)
+        ui_panel.add_widget(self.score_label)
         ui_panel.add_widget(level_label)
-        ui_panel.add_widget(new_game_button)
-        ui_panel.add_widget(undo_button)
+        ui_panel.add_widget(self.new_game_button)
+        ui_panel.add_widget(self.undo_button)
         ui_panel.add_widget(self.diag_label)
         ui_panel.add_widget(Widget()) # Spacer
         self.add_widget(ui_panel)
 
         Window.bind(mouse_pos=self.on_mouse_pos)
+
+    def update_score(self, new_score):
+        """Updates the score label with the new score."""
+        self.score_label.text = f"Score: {new_score}"
+
+    def show_game_over(self, reason):
+        """Displays a game-over popup."""
+        from kivy.app import App
+        controller = App.get_running_app().controller
+
+        content = BoxLayout(orientation='vertical', padding=10, spacing=10)
+        content.add_widget(Label(text=reason))
+        
+        popup_new_game_button = Button(text='New Game', size_hint_y=None, height=44)
+        content.add_widget(popup_new_game_button)
+
+        popup = Popup(title='Game Over',
+                      content=content,
+                      size_hint=(None, None), size=('300dp', '200dp'),
+                      auto_dismiss=False)
+        
+        # Bind the button to both the controller's new game method and to dismiss the popup
+        popup_new_game_button.bind(on_press=controller.start_new_game)
+        popup_new_game_button.bind(on_press=popup.dismiss)
+        
+        popup.open()
 
     def on_mouse_pos(self, window, pos):
         if not self.game_grid.collide_point(*pos):

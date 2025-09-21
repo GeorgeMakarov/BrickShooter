@@ -1,5 +1,6 @@
 from enum import Enum
 import random
+import copy
 
 BRICK_COLORS = [
     (1, 0, 0, 1),       # 0: red
@@ -53,11 +54,16 @@ class Brick:
 class GameModel:
     def __init__(self):
         self.field = [[Brick() for _ in range(FIELD_SIZE)] for _ in range(FIELD_SIZE)]
+        self.score = 0
+        self.history = []
         self.new_game()
 
     def new_game(self, level=0):
         """Initializes the game board for a new game."""
+        print("--- Starting new game ---")
         self.field = [[Brick() for _ in range(FIELD_SIZE)] for _ in range(FIELD_SIZE)]
+        self.score = 0
+        self.history.clear()
 
         # Define launch zones and fill them
         zones = [
@@ -126,9 +132,12 @@ class GameModel:
     def find_and_remove_groups(self, min_group_size=3):
         """
         Finds and removes groups of same-colored bricks.
-        Returns a list of coordinates of the removed bricks.
+        Returns a tuple of:
+        - a list of coordinates of the removed bricks.
+        - the score obtained in this step.
         """
         removed_bricks = []
+        score_this_turn = 0
         visited = [[False for _ in range(FIELD_SIZE)] for _ in range(FIELD_SIZE)]
 
         for r in range(PLAY_AREA_START, PLAY_AREA_END):
@@ -147,10 +156,21 @@ class GameModel:
                 
                 if len(group) >= min_group_size:
                     removed_bricks.extend(group)
+                    
+                    # More complex scoring: rewards larger groups
+                    group_size = len(group)
+                    base_score = 10
+                    # Bonus multiplier for clearing more than the minimum
+                    bonus_multiplier = (group_size - min_group_size) + 1 
+                    score_this_turn += group_size * base_score * bonus_multiplier
+
                     for gr, gc in group:
                         self.field[gr][gc] = Brick()
 
-        return removed_bricks
+        if score_this_turn > 0:
+            self.score += score_this_turn
+        
+        return removed_bricks, score_this_turn
 
     def _find_group(self, start_r, start_c, color_index, visited):
         q = [(start_r, start_c)]
@@ -265,7 +285,8 @@ class GameModel:
         
         return shot_fired
 
-    def _handle_shot(self, r, c, launcher_id):
+    def _get_shot_details(self, r, c, launcher_id):
+        """Based on a launcher UI coordinate, returns details needed for a shot."""
         if launcher_id == 'left':
             target_r, target_c = r, PLAY_AREA_START
             direction = CellIntention.TO_RIGHT
@@ -283,8 +304,16 @@ class GameModel:
             direction = CellIntention.TO_UP
             ammo_indices = [(i, c) for i in range(PLAY_AREA_END, FIELD_SIZE)]
         else:
-            return False
+            return None, None, None, None, None, None
+        return r, c, target_r, target_c, direction, ammo_indices
 
+    def _handle_shot(self, r, c, launcher_id):
+        shot_details = self._get_shot_details(r, c, launcher_id)
+        if not shot_details[0]:
+            return False
+        
+        _, _, target_r, target_c, direction, ammo_indices = shot_details
+        
         if self.field[target_r][target_c].intention != CellIntention.VOID:
             return False
 
@@ -317,3 +346,93 @@ class GameModel:
                 if self.field[i][c].intention != CellIntention.VOID:
                     return True
         return False
+
+    def save_state(self):
+        """Saves the current game state to the history stack."""
+        state = {
+            'field': copy.deepcopy(self.field),
+            'score': self.score
+        }
+        self.history.append(state)
+        print(f"State saved. History depth: {len(self.history)}")
+
+    def revert_to_previous_state(self):
+        """Restores the game state from the most recent history entry."""
+        if not self.history:
+            print("No history to revert to.")
+            return False
+        
+        previous_state = self.history.pop()
+        self.field = previous_state['field']
+        self.score = previous_state['score']
+        print(f"State reverted. History depth: {len(self.history)}")
+        return True
+
+    def is_game_over(self):
+        """
+        Checks for game-over conditions: either the play area is empty, or
+        there are no possible moves left.
+        """
+        # Condition 1: Is the play area empty?
+        is_empty = all(self.field[r][c].intention == CellIntention.VOID 
+                       for r in range(PLAY_AREA_START, PLAY_AREA_END) 
+                       for c in range(PLAY_AREA_START, PLAY_AREA_END))
+        if is_empty:
+            return True, "You win! Board cleared."
+
+        # Condition 2: Are there any possible moves?
+        if not self.has_possible_moves():
+            return True, "Game over. No more moves."
+            
+        return False, ""
+
+    def has_possible_moves(self):
+        """Checks if there's at least one valid shot from any launcher."""
+        launch_points = []
+        # Left launchers
+        launch_points.extend([((r, PLAY_AREA_START - 1), 'left') for r in range(PLAY_AREA_START, PLAY_AREA_END)])
+        # Right launchers
+        launch_points.extend([((r, PLAY_AREA_END), 'right') for r in range(PLAY_AREA_START, PLAY_AREA_END)])
+        # Top launchers
+        launch_points.extend([((PLAY_AREA_START - 1, c), 'top') for c in range(PLAY_AREA_START, PLAY_AREA_END)])
+        # Bottom launchers
+        launch_points.extend([((PLAY_AREA_END, c), 'bottom') for c in range(PLAY_AREA_START, PLAY_AREA_END)])
+
+        return any(self._is_shot_possible(r, c, launcher_id) for (r, c), launcher_id in launch_points)
+
+    def _is_shot_possible(self, r, c, launcher_id):
+        """Determines if a shot is possible without actually firing."""
+        shot_details = self._get_shot_details(r, c, launcher_id)
+        if not shot_details[0]:
+            return False
+            
+        _, _, target_r, target_c, direction, ammo_indices = shot_details
+
+        if self.field[target_r][target_c].intention != CellIntention.VOID:
+            return False
+            
+        if not self._is_obstacle_in_path(target_r, target_c, direction):
+            return False
+
+        # Check for ammo
+        return any(self.field[ammo_r][ammo_c].intention != CellIntention.VOID for ammo_r, ammo_c in ammo_indices)
+
+    def get_field_intentions_map(self):
+        """Returns a string representation of the field for console output."""
+        char_map = {
+            CellIntention.VOID: '.',
+            CellIntention.TO_LEFT: '<',
+            CellIntention.TO_RIGHT: '>',
+            CellIntention.TO_UP: '^',
+            CellIntention.TO_DOWN: 'v',
+            CellIntention.STAND: 'S'
+        }
+        
+        header = "   " + "".join([f" {i:^2}" for i in range(FIELD_SIZE)])
+        lines = [header, "   " + "---" * FIELD_SIZE]
+        for r_idx, row in enumerate(self.field):
+            line = f"{r_idx:2}|"
+            for brick in row:
+                line += f" {char_map[brick.intention]} "
+            lines.append(line)
+        return "\n".join(lines)
