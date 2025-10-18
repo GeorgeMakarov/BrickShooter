@@ -9,28 +9,55 @@ class GameController:
         self.model = model
         self.view = view
         self.is_resolving = False
+        self.pending_movement_step = None
 
         self.view.game_grid.bind(on_touch_down=self.on_grid_touch)
         self.view.new_game_button.bind(on_press=self.start_new_game)
         self.view.undo_button.bind(on_press=self.undo_last_move)
 
+    def apply_settings(self, settings):
+        """Applies new settings to the game model."""
+        num_colors = settings.get('num_colors')
+        if num_colors and num_colors != self.model.num_colors:
+            self.model.num_colors = num_colors
+            print(f"Applied new setting: num_colors = {num_colors}")
+            self.start_new_game()
+
     def start(self):
         """
-        Called at the beginning of the game. We schedule the initial draw
-        to happen on the next frame, ensuring all widgets are sized correctly.
+        Called at the beginning of the game.
         """
-        self.view.draw_field(self.model.field)
-        print("Initial board state:")
-        print(self.model.get_field_intentions_map())
+        self.start_new_game()
 
     def start_new_game(self, *args):
         """Resets the game to its initial state."""
-        self.model.new_game()
-        self.view.draw_field(self.model.field)
-        self.view.update_score(self.model.score)
+        print("DIAG: --- start_new_game START ---")
         self.is_resolving = False
-        self.view.is_animating = False
+
+        if self.pending_movement_step:
+            print("DIAG: Cancelling pending movement step.")
+            self.pending_movement_step.cancel()
+            self.pending_movement_step = None
+
+        # First, clear any ongoing animations or visual artifacts from the view
+        print("DIAG: Calling clear_board_visuals...")
+        self.view.clear_board_visuals()
+        print("DIAG: ...clear_board_visuals returned.")
+
+        # Then, reset the model to a new game state
+        print("DIAG: Calling model.new_game()...")
+        self.model.new_game()
+        print("DIAG: ...model.new_game() returned.")
+
+        # Finally, draw the new board and update the score display
+        print("DIAG: Calling view.draw_field()...")
+        self.view.draw_field(self.model.field)
+        print("DIAG: ...view.draw_field() returned.")
+        self.view.update_score(self.model.score)
         print("--- NEW GAME STARTED ---")
+        print("Initial board state:")
+        print(self.model.get_field_intentions_map())
+        print("DIAG: --- start_new_game END ---")
 
     def undo_last_move(self, *args):
         """Reverts the game to the previous state."""
@@ -84,15 +111,16 @@ class GameController:
         self.movement_step()
 
     def movement_step(self, dt=None):
-        self.view.is_animating = True
-
         moved_coords = self.model.movement_resolution_step()
         print(f"Movement step: {len(moved_coords)} bricks moved.")
         crossed = self.model.handle_board_crossers()
         if crossed:
             print("A brick crossed into a launch zone.")
+            # Force a full redraw to keep the view synced with the model after a complex shift.
+            self.view.draw_field(self.model.field)
 
         if moved_coords or crossed:
+            # Animate normal moves. The crossing-related changes are already snapped into place by draw_field.
             self.view.animate_events([], moved_coords, self.movement_step)
         else:
             self.group_removal_step()
@@ -114,13 +142,20 @@ class GameController:
         if refilled:
             print("Launch zones refilled.")
             self.view.draw_field(self.model.field)
-            Clock.schedule_once(self.movement_step, 0.2) # Short delay before next auto-resolve
+            self.pending_movement_step = Clock.schedule_once(self.movement_step, 0.2) # Short delay before next auto-resolve
         else:
             self.is_resolving = False
-            self.view.is_animating = False
             print("Final board state for this cycle:")
             print(self.model.get_field_intentions_map())
             
-            is_over, reason = self.model.is_game_over()
-            if is_over:
-                self.view.show_game_over(reason)
+            self.view.run_after_animation(self.check_game_over)
+
+    def check_game_over(self):
+        """Checks game over conditions after animations are confirmed to be complete."""
+        # Safeguard: Do not show game over if a new resolution cycle has begun
+        if self.is_resolving:
+            return
+
+        is_over, reason = self.model.is_game_over()
+        if is_over:
+            self.view.show_game_over(reason)

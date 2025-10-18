@@ -6,13 +6,20 @@ from kivy.uix.widget import Widget
 from kivy.uix.popup import Popup
 from kivy.uix.floatlayout import FloatLayout
 from kivy.uix.relativelayout import RelativeLayout
+from kivy.uix.checkbox import CheckBox
 from kivy.graphics import Color, Rectangle, Triangle, Line
 from kivy.core.window import Window
 from kivy.animation import Animation
 from kivy.properties import ObjectProperty
+from kivy.clock import Clock
+from kivy.graphics.instructions import InstructionGroup
+from kivy.app import App
+import copy
+import itertools
 
-from model import BRICK_COLORS, FIELD_SIZE, PLAY_AREA_START, PLAY_AREA_END, CellIntention, Brick
+from model import FIELD_SIZE, PLAY_AREA_START, PLAY_AREA_END, CellIntention, Brick
 
+_widget_id_counter = itertools.count()
 BRICK_SKIN_PATH = 'v1/assets/NBricks.bmp'
 N_BRICK_COLORS = 10
 
@@ -33,11 +40,11 @@ def _get_texture_coords(brick):
         u0, u1 = 0.4, 0.6
 
     v_step = 1 / N_BRICK_COLORS
-    v0 = 1 - (brick.color_index + 1) * v_step
-    v1 = 1 - brick.color_index * v_step
+    v0 = brick.color_index * v_step
+    v1 = (brick.color_index + 1) * v_step
     return u0, u1, v0, v1
 
-ANIMATION_DURATION = 0.02
+ANIMATION_DURATION = 0.05
 Window.clearcolor = (0, 0, 0, 1)
 
 class CellWidget(Widget):
@@ -61,6 +68,8 @@ class BrickWidget(Widget):
         
         super().__init__(**kwargs)
         self.size_hint = (None, None)
+        self.uid = next(_widget_id_counter)
+        print(f"DIAG: Created BrickWidget(uid={self.uid})")
         
         # Now that the widget itself is initialized, set up its graphics
         with self.canvas:
@@ -93,6 +102,10 @@ class GameWidget(BoxLayout):
         super().__init__(**kwargs)
         self.orientation = 'horizontal'
         self.is_animating = False
+        self._animation_done_callback = None
+
+        # --- Ghost Trail Spawners ---
+        self.ghost_spawners = {} # Maps a widget to its Clock event
 
         # Use a RelativeLayout for robust layering
         game_area_layout = RelativeLayout(size_hint=(0.75, 1))
@@ -122,6 +135,7 @@ class GameWidget(BoxLayout):
         level_label = Label(text="Level: 0", size_hint_y=None, height=40)
         self.new_game_button = Button(text="New Game", size_hint_y=None, height=50)
         self.undo_button = Button(text="Undo", size_hint_y=None, height=50)
+        self.settings_button = Button(text="Settings", size_hint_y=None, height=50)
         self.diag_label = Label(
             text='Hover over grid...', 
             size_hint_y=None, 
@@ -134,11 +148,31 @@ class GameWidget(BoxLayout):
         ui_panel.add_widget(level_label)
         ui_panel.add_widget(self.new_game_button)
         ui_panel.add_widget(self.undo_button)
+        ui_panel.add_widget(self.settings_button)
         ui_panel.add_widget(self.diag_label)
         ui_panel.add_widget(Widget()) # Spacer
         self.add_widget(ui_panel)
 
+        self.settings_button.bind(on_press=self.open_settings)
+
         Window.bind(mouse_pos=self.on_mouse_pos)
+
+    def run_after_animation(self, callback):
+        """
+        Executes a callback function after all current animations are finished.
+        If no animations are running, the callback is executed immediately.
+        """
+        if not self.is_animating:
+            callback()
+        else:
+            self._animation_done_callback = callback
+
+    def open_settings(self, instance):
+        from kivy.app import App
+        controller = App.get_running_app().controller
+        current_settings = {'num_colors': controller.model.num_colors} 
+        popup = SettingsPopup(controller, current_settings)
+        popup.open()
 
     def update_score(self, new_score):
         """Updates the score label with the new score."""
@@ -204,7 +238,10 @@ class GameWidget(BoxLayout):
         for r, c in removed_coords:
             widget = self.brick_widgets[r][c]
             if widget:
-                anim = Animation(opacity=0, duration=ANIMATION_DURATION)
+                center_x = widget.x + widget.width / 2
+                center_y = widget.y + widget.height / 2
+                anim = Animation(opacity=0, pos=(center_x, center_y), size=(0, 0), 
+                                 duration=ANIMATION_DURATION)
                 anim.bind(on_complete=lambda *args, w=widget: self.animation_layer.remove_widget(w))
                 animations_to_run.append((anim, widget))
                 self.brick_widgets[r][c] = None
@@ -213,22 +250,33 @@ class GameWidget(BoxLayout):
         cell_width = self.game_grid.width / FIELD_SIZE
         cell_height = self.game_grid.height / FIELD_SIZE
         
-        from kivy.app import App
         model = App.get_running_app().controller.model
 
         for (start_r, start_c), (end_r, end_c) in moved_coords:
             widget = self.brick_widgets[start_r][start_c]
             if widget:
                 # Sync widget with model BEFORE animating
-                brick_data = model.field[end_r][end_c]
-                widget.brick_data = brick_data
-                # Manually trigger the visual update, because Kivy's ObjectProperty
-                # won't detect a change if the underlying object is mutated.
+                brick_data_ref = model.field[end_r][end_c]
+                widget.brick_data = brick_data_ref
                 widget._update_visuals()
 
                 x = end_c * cell_width
                 y = (FIELD_SIZE - 1 - end_r) * cell_height
-                anim = Animation(pos=(x, y), duration=ANIMATION_DURATION)
+                
+                # --- Widget-based Throttled Ghost Trail ---
+                anim = Animation(pos=(x, y), duration=ANIMATION_DURATION, t='linear')
+
+                # Capture the brick's state AT THIS MOMENT for the trail
+                captured_brick_data = copy.copy(widget.brick_data)
+
+                # Schedule the spawner and store the event
+                spawner = Clock.schedule_interval(
+                    lambda dt: self.spawn_ghost(widget, captured_brick_data), 0.04)
+                self.ghost_spawners[widget] = spawner
+
+                # When animation is done, unschedule the spawner
+                anim.bind(on_complete=self.on_brick_anim_complete)
+
                 animations_to_run.append((anim, widget))
                 
                 self.brick_widgets[end_r][end_c] = widget
@@ -238,22 +286,72 @@ class GameWidget(BoxLayout):
             on_complete_callback()
             return
 
+        self.is_animating = True
         # Use a counter to call the final callback only when all animations are done
         self.animation_counter = len(animations_to_run)
 
         def _on_animation_complete(*args):
             self.animation_counter -= 1
             if self.animation_counter == 0:
+                self.is_animating = False
                 # After all animations are done, it's crucial to re-sync with the model
                 # to correct any visual inconsistencies from chained moves.
                 from kivy.app import App
                 model = App.get_running_app().controller.model
                 self.draw_field(model.field)
                 on_complete_callback()
+                if self._animation_done_callback:
+                    self._animation_done_callback()
+                    self._animation_done_callback = None
 
         for anim, widget in animations_to_run:
             anim.bind(on_complete=_on_animation_complete)
             anim.start(widget)
+
+    def clear_board_visuals(self):
+        """Cancels all animations and removes all bricks from the board."""
+        print("DIAG: --- clear_board_visuals START ---")
+        # Cancel all scheduled ghost spawners
+        for spawner in self.ghost_spawners.values():
+            spawner.cancel()
+        self.ghost_spawners.clear()
+
+        # Stop all animations on children before clearing them all
+        print(f"DIAG: Widgets in animation_layer before clear: {[w.uid for w in self.animation_layer.children if isinstance(w, BrickWidget)]}")
+        for widget in self.animation_layer.children:
+            if isinstance(widget, BrickWidget):
+                Animation.cancel_all(widget)
+        self.animation_layer.clear_widgets()
+        print(f"DIAG: Widgets in animation_layer after clear: {[w.uid for w in self.animation_layer.children if isinstance(w, BrickWidget)]}")
+
+        # Reset the grid of widget references
+        self.brick_widgets = [[None for _ in range(FIELD_SIZE)] for _ in range(FIELD_SIZE)]
+
+        # Reset animation state completely
+        self.is_animating = False
+        self._animation_done_callback = None
+        self.animation_counter = 0
+        print("DIAG: --- clear_board_visuals END ---")
+
+    def on_brick_anim_complete(self, animation, widget):
+        """Called when a brick's movement animation finishes."""
+        if widget in self.ghost_spawners:
+            self.ghost_spawners[widget].cancel()
+            del self.ghost_spawners[widget]
+
+    def spawn_ghost(self, parent_widget, brick_data):
+        """Creates a single fading ghost for a trail."""
+        ghost = BrickWidget(
+            brick_data=brick_data,
+            pos=parent_widget.pos,
+            size=parent_widget.size,
+            opacity=0.6
+        )
+        self.animation_layer.add_widget(ghost)
+
+        fade_anim = Animation(opacity=0, duration=0.25)
+        fade_anim.bind(on_complete=lambda *args, w=ghost: self.animation_layer.remove_widget(w))
+        fade_anim.start(ghost)
 
     def on_grid_resize(self, *args):
         self.update_brick_positions()
@@ -272,7 +370,9 @@ class GameWidget(BoxLayout):
 
     def draw_field(self, field_data):
         """Syncs the visual brick widgets with the model's field data."""
+        print("DIAG: --- draw_field START ---")
         if not self.game_grid.width > 1: # Grid is not drawn yet
+            print("DIAG: Grid not ready, aborting draw_field.")
             return
 
         for r in range(FIELD_SIZE):
@@ -296,6 +396,7 @@ class GameWidget(BoxLayout):
                     self.animation_layer.remove_widget(brick_widget)
                     self.brick_widgets[r][c] = None
         self.update_brick_positions()  # Ensure positions/sizes are updated after sync
+        print("DIAG: --- draw_field END ---")
 
     def draw_grid_lines(self, *args):
         self.game_grid.canvas.after.clear()
@@ -322,3 +423,64 @@ class GameWidget(BoxLayout):
             for r in range(PLAY_AREA_START + 1, PLAY_AREA_END):
                 y = grid_y + grid_h - r * cell_h
                 Line(points=[x_left, y, x_right, y], width=1)
+
+class SettingsPopup(Popup):
+    def __init__(self, controller, current_settings, **kwargs):
+        super().__init__(**kwargs)
+        self.controller = controller
+        self.current_settings = current_settings
+
+        self.title = 'Settings'
+        self.size_hint = (0.6, 0.6)
+        self.auto_dismiss = False
+
+        layout = BoxLayout(orientation='vertical', padding=10, spacing=20)
+
+        # --- Difficulty ---
+        difficulty_layout = BoxLayout(orientation='vertical', spacing='10dp', size_hint_y=None)
+        difficulty_layout.bind(minimum_height=difficulty_layout.setter('height'))
+
+        difficulty_label = Label(text='Difficulty', font_size='20sp', size_hint_y=None, height=40)
+        difficulty_layout.add_widget(difficulty_label)
+
+        self.difficulty_checkboxes = {}
+        difficulties = {'Easy': 5, 'Medium': 7, 'Hard': 10}
+        
+        for name, num_colors in difficulties.items():
+            row = BoxLayout(orientation='horizontal', size_hint_y=None, height=30)
+            row.add_widget(Label(text=name, size_hint_x=0.8))
+            
+            cb = CheckBox(group='difficulty', size_hint_x=0.2)
+            cb.active = (self.current_settings.get('num_colors') == num_colors)
+            cb.num_colors = num_colors
+            self.difficulty_checkboxes[name] = cb
+            
+            row.add_widget(cb)
+            difficulty_layout.add_widget(row)
+
+        layout.add_widget(difficulty_layout)
+        layout.add_widget(Widget()) # Spacer
+
+        # --- Buttons ---
+        button_layout = BoxLayout(orientation='horizontal', size_hint_y=None, height=50, spacing=10)
+        save_button = Button(text='Save')
+        save_button.bind(on_press=self.save_settings)
+        cancel_button = Button(text='Cancel')
+        cancel_button.bind(on_press=self.dismiss)
+
+        button_layout.add_widget(save_button)
+        button_layout.add_widget(cancel_button)
+
+        layout.add_widget(button_layout)
+        
+        self.content = layout
+
+    def save_settings(self, instance):
+        new_settings = {}
+        for name, cb in self.difficulty_checkboxes.items():
+            if cb.active:
+                new_settings['num_colors'] = cb.num_colors
+                break
+        
+        self.controller.apply_settings(new_settings)
+        self.dismiss()

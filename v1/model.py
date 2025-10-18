@@ -2,21 +2,17 @@ from enum import Enum
 import random
 import copy
 
-BRICK_COLORS = [
-    (1, 0, 0, 1),       # 0: red
-    (0, 1, 0, 1),       # 1: green
-    (0, 0, 1, 1),       # 2: blue
-    (1, 1, 0, 1),       # 3: yellow
-    (0.6, 0.25, 0, 1),  # 4: brown
-    (0.3, 0.3, 0.3, 1), # 5: black/dark grey
-    (0, 1, 1, 1),       # 6: cyan
-    (1, 0, 1, 1),       # 7: magenta
-    (1, 0.4, 0.7, 1),   # 8: rose
-]
-
 COLOR_NAMES = [
-    'red', 'green', 'blue', 'yellow', 'brown', 
-    'black', 'cyan', 'magenta', 'rose'
+    'red',
+    'blue',
+    'purple',
+    'green',
+    'yellow',
+    'brown',
+    'cyan',
+    'orange',
+    'grey',
+    'magenta'
 ]
 
 # --- Game Constants ---
@@ -52,13 +48,13 @@ class Brick:
         return [0, 0] # for STAND and VOID
 
 class GameModel:
-    def __init__(self):
+    def __init__(self, num_colors=7):
         self.field = [[Brick() for _ in range(FIELD_SIZE)] for _ in range(FIELD_SIZE)]
         self.score = 0
         self.history = []
-        self.new_game()
+        self.num_colors = num_colors
 
-    def new_game(self, level=0):
+    def new_game(self):
         """Initializes the game board for a new game."""
         print("--- Starting new game ---")
         self.field = [[Brick() for _ in range(FIELD_SIZE)] for _ in range(FIELD_SIZE)]
@@ -75,7 +71,7 @@ class GameModel:
         for zone in zones:
             for r in zone['rows']:
                 for c in zone['cols']:
-                    self.field[r][c] = Brick(intention=CellIntention.STAND, color_index=random.randint(0, 8))
+                    self.field[r][c] = Brick(intention=CellIntention.STAND, color_index=random.randint(0, self.num_colors - 1))
 
         # Add random obstacles to the play area
         num_obstacles = 2
@@ -83,7 +79,7 @@ class GameModel:
         while placed_obstacles < num_obstacles:
             r, c = random.randint(PLAY_AREA_START, PLAY_AREA_END - 1), random.randint(PLAY_AREA_START, PLAY_AREA_END - 1)
             if self.field[r][c].intention == CellIntention.VOID:
-                self.field[r][c] = Brick(intention=CellIntention.STAND, color_index=random.randint(0, 8))
+                self.field[r][c] = Brick(intention=CellIntention.STAND, color_index=random.randint(0, self.num_colors - 1))
                 placed_obstacles += 1
 
     def movement_resolution_step(self):
@@ -267,7 +263,7 @@ class GameModel:
                     self.field[r_dest][c_dest] = self.field[r_src][c_src]
                 
                 r_new, c_new = queue_coords[-1]
-                self.field[r_new][c_new] = Brick(intention=CellIntention.STAND, color_index=random.randint(0, 8))
+                self.field[r_new][c_new] = Brick(intention=CellIntention.STAND, color_index=random.randint(0, self.num_colors - 1))
                 
                 return True
         return False
