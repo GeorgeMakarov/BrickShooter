@@ -133,23 +133,49 @@ docs/                # design, plan, TODO
 
 Keeping `domain/` and `tests/` in Python under `v2/` lets rules be verified without opening Godot; the GDScript port checks against the same assertions. If Phase 1 is skipped, `v2/` contains only `godot/`.
 
-### Phase 0 — Lock in v1 as a reference
-- Tag v1 (`git tag v1-final`) before any rewrite.
-- Add a minimal test harness in Python: snapshot tests of `GameModel.movement_resolution_step`, `find_and_remove_groups`, `shoot_brick` on known boards. These become the *spec* the Godot port must match.
-- Deliverable: green test suite confirming current behavior.
+### Working discipline (applies to every phase below)
+
+Write the test **before** the implementation change it drives. Red → green → refactor. No code change lands without a test that would have failed yesterday. In practice per phase:
+
+1. Pick the smallest behaviour to add or change (e.g. "`shoot_brick` emits a `BrickShot` event").
+2. Add or modify a test that asserts that behaviour. Run tests → see it fail.
+3. Make the change. Run tests → see them all pass.
+4. Commit (test + change together).
+
+Exception: pure mechanical moves (file renames, import-only edits) don't need a new test — the existing suite guards them. Anything adding, changing, or removing *behaviour* needs a test on the same commit.
+
+### Phase 0 — Lock in v1 as a reference  *(done)*
+- ~~Tag v1~~ — `v1-final` (`48ab5a7`).
+- ~~Spec tests~~ — 20 pytest cases in `v1/tests/test_model.py` (`4a48300`).
+- **Deliverable met**: green suite documenting current v1 behaviour.
 
 ### Phase 1 — Extract the pure domain (still in Python)
-- New `v1/domain/` package with **zero** Kivy imports. Move: `Brick`, `CellIntention`, `FIELD_SIZE`, resolution cycle, matching, shot rules, scoring, history.
-- Introduce `DomainEvent` and refactor model methods to return event lists instead of mutating and relying on the view to guess.
-- Controller consumes events, translates to Kivy calls.
-- **Why this phase exists even if we go Godot**: it proves the event model against the tests from Phase 0 before translating to GDScript. Catches design bugs cheap.
-- Deliverable: Kivy game still runs, but domain is now a pure library that could be unit-tested without a window.
+
+Target layout: `v2/domain/` (no Kivy imports), `v2/tests/` (pytest, mirrors and extends `v1/tests/`).
+
+Test-first loop for each sub-task:
+
+1. **`DomainEvent` types**. *Test*: construct each event variant, check payload fields. *Impl*: `v2/domain/events.py` as a tagged union (dataclasses).
+2. **Move `Brick`, `CellIntention`, constants**. *Test*: copy the relevant v1 tests with `from v2.domain...` imports; run red, then create modules to go green. Mechanical move — same assertions.
+3. **Matching → events**. *Test*: `find_and_remove_groups` returns a list containing a `BrickMatched` event with the right cells, in addition to the existing `(removed, score)` contract. *Impl*: emit events inside the rule.
+4. **Movement → events**. *Test*: `movement_resolution_step` emits one `BrickMoved(from, to)` per move. *Impl*: swap the current return shape for an event list.
+5. **Shot / crosser / refill → events**. Same pattern.
+6. **History → events**. *Test*: `revert_to_previous_state` emits `StateReverted(snapshot)`. *Impl*: carry the snapshot in the event so presenters can rebuild atomically.
+7. **Rewire `v1/controller.py`** to consume events. *Test*: the controller translates each event type to the right view call — use a fake presenter implementing `GamePresenterPort` and assert call order. *Integration check*: launch the Kivy app and play a full round — must match v1 behaviour.
+
+Exit criterion: `pytest v2/tests/` green; Kivy game plays identically.
 
 ### Phase 2 — Port to Godot project at `v2/godot/`
-- Translate `v2/domain/` to GDScript classes one entity at a time, porting tests alongside under `v2/godot/tests/` (GUT framework).
-- Build minimal scene: grid, brick sprite, launch indicators. Hook domain events → node updates.
-- Replace ghost-trail hack with `GPUParticles2D` on move events; particle burst on `BrickMatched`.
-- Deliverable: playable Godot desktop build with parity to v1.
+
+Same TDD loop, different language. For each domain concept:
+
+1. Write the equivalent GUT test in `v2/godot/tests/` (translated from `v2/tests/`).
+2. Implement the GDScript class to make it pass.
+3. Keep Python `v2/tests/` green in parallel — the two test suites mirror each other and together pin the contract.
+
+Scene work (grid, sprites, particle effects) follows the same discipline: a minimal assertion ("when a `BrickMatched` event arrives, a `GPUParticles2D` is emitted at that cell's world position") via GUT scene tests before the effect is tuned visually.
+
+Exit criterion: Godot desktop build plays a round; GUT + pytest both green.
 
 ### Phase 3 — Web export + server deploy
 - `godot --export-release "Web"` → `build/web/`.
