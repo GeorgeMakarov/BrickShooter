@@ -29,7 +29,7 @@
     - [x] Fixed issue where moving bricks retained `TO_*` intention when entering a launch zone.
 
 ## Phase 3: Player Interaction
-- [ ] **Handle Player Input**:
+- [x] **Handle Player Input**:
     - [x] Detect taps on `CellWidget`s.
     - [x] Pass tap coordinates to the `GameEngine`.
 - [x] **Implement "Shoot Brick" Use-Case**:
@@ -39,19 +39,19 @@
     - [x] Trigger the Resolution Cycle (stubbed).
 
 ## Phase 4: Game Flow & UI
-- [ ] **Implement `new_game` Logic**:
-    - [ ] Populate the play area with `STAND` bricks for a new level.
+- [x] **Implement `new_game` Logic**:
+    - [x] Populate the play area with `STAND` bricks for a new level.
     - [x] Populate the launch zones with ammunition bricks.
-- [ ] **Implement Scoring System**:
-    - [ ] Add a score variable to `GameEngine`.
-    - [ ] Increment score when bricks are matched and deleted.
+- [x] **Implement Scoring System**:
+    - [x] Add a score variable to `GameEngine`.
+    - [x] Increment score when bricks are matched and deleted.
     - [x] Display the score in the UI.
-- [ ] **Implement Game State Checks**:
-    - [ ] Check for "Level Complete" (e.g., no `STAND` bricks left).
-    - [ ] Check for "Game Over" (e.g., no more moves possible).
-- [ ] **Connect UI Buttons**:
-    - [ ] Make the "New Game" button call `new_game`.
-    - [ ] Implement and connect an "Undo" button (optional, can be complex).
+- [x] **Implement Game State Checks**:
+    - [x] Check for "Level Complete" (e.g., no `STAND` bricks left).
+    - [x] Check for "Game Over" (e.g., no more moves possible).
+- [x] **Connect UI Buttons**:
+    - [x] Make the "New Game" button call `new_game`.
+    - [x] Implement and connect an "Undo" button (optional, can be complex).
 
 ## Phase 5: Refactoring
 - [x] **Code Cleanup**: Removed duplicate `on_mouse_pos` and texture coordinate logic.

@@ -65,10 +65,17 @@ class GameController:
             print("Cannot undo while animations are in progress.")
             return
 
+        print("=== UNDO START ===")
+        print(f"DIAG: animation_layer children count: {len(self.view.animation_layer.children)}")
+        print(f"DIAG: brick_widgets tracked count: {sum(1 for row in self.view.brick_widgets for w in row if w is not None)}")
+        print(f"DIAG: active ghost spawners: {len(self.view.ghost_spawners)}")
+
         if self.model.revert_to_previous_state():
             self.view.draw_field(self.model.field)
+            self.view.sweep_orphan_widgets()
             self.view.update_score(self.model.score)
-            print("Undo successful.")
+            print(f"DIAG: post-undo animation_layer children: {len(self.view.animation_layer.children)}")
+            print("=== UNDO END ===")
         else:
             print("Undo failed: No history available.")
 
@@ -90,6 +97,8 @@ class GameController:
             self.start_resolution_cycle()
             print("Board state after shot:")
             print(self.model.get_field_intentions_map())
+        else:
+            self.model.history.pop()
 
     def get_coords_from_pos(self, x, y):
         local_x = x - self.view.game_grid.x

@@ -15,12 +15,12 @@ from kivy.clock import Clock
 from kivy.graphics.instructions import InstructionGroup
 from kivy.app import App
 import copy
-import itertools
 
 from model import FIELD_SIZE, PLAY_AREA_START, PLAY_AREA_END, CellIntention, Brick
 
-_widget_id_counter = itertools.count()
-BRICK_SKIN_PATH = 'v1/assets/NBricks.bmp'
+import os
+
+BRICK_SKIN_PATH = os.path.join(os.path.dirname(__file__), 'assets', 'NBricks.bmp')
 N_BRICK_COLORS = 10
 
 def _get_texture_coords(brick):
@@ -68,8 +68,6 @@ class BrickWidget(Widget):
         
         super().__init__(**kwargs)
         self.size_hint = (None, None)
-        self.uid = next(_widget_id_counter)
-        print(f"DIAG: Created BrickWidget(uid={self.uid})")
         
         # Now that the widget itself is initialized, set up its graphics
         with self.canvas:
@@ -269,6 +267,11 @@ class GameWidget(BoxLayout):
                 # Capture the brick's state AT THIS MOMENT for the trail
                 captured_brick_data = copy.copy(widget.brick_data)
 
+                # Cancel any existing spawner for this widget before creating a new one
+                existing = self.ghost_spawners.pop(widget, None)
+                if existing is not None:
+                    existing.cancel()
+
                 # Schedule the spawner and store the event
                 spawner = Clock.schedule_interval(
                     lambda dt: self.spawn_ghost(widget, captured_brick_data), 0.04)
@@ -370,9 +373,9 @@ class GameWidget(BoxLayout):
 
     def draw_field(self, field_data):
         """Syncs the visual brick widgets with the model's field data."""
-        print("DIAG: --- draw_field START ---")
+        created, updated, removed = [], [], []
         if not self.game_grid.width > 1: # Grid is not drawn yet
-            print("DIAG: Grid not ready, aborting draw_field.")
+            print("DIAG: draw_field: grid not ready, aborting.")
             return
 
         for r in range(FIELD_SIZE):
@@ -380,23 +383,44 @@ class GameWidget(BoxLayout):
                 brick_data = field_data[r][c]
                 brick_widget = self.brick_widgets[r][c]
 
-                # If there's a brick in the model
                 if brick_data.intention != CellIntention.VOID:
-                    # If there's no widget for it, create one
                     if brick_widget is None:
                         new_widget = BrickWidget(brick_data=brick_data)
                         self.brick_widgets[r][c] = new_widget
                         self.animation_layer.add_widget(new_widget)
-                    # If a widget already exists, update it
+                        created.append((r, c, new_widget.uid))
                     else:
                         brick_widget.brick_data = brick_data
-                
-                # If there's no brick in the model, but there is a widget
+                        updated.append((r, c, brick_widget.uid))
                 elif brick_widget is not None:
+                    removed.append((r, c, brick_widget.uid))
                     self.animation_layer.remove_widget(brick_widget)
                     self.brick_widgets[r][c] = None
-        self.update_brick_positions()  # Ensure positions/sizes are updated after sync
-        print("DIAG: --- draw_field END ---")
+
+        self.update_brick_positions()
+        print(f"DIAG: draw_field: created={len(created)} updated={len(updated)} removed={len(removed)}")
+        if created: print(f"DIAG:   created: {created[:8]}{'...' if len(created) > 8 else ''}")
+        if removed: print(f"DIAG:   removed: {removed}")
+
+    def sweep_orphan_widgets(self):
+        """Removes BrickWidgets present in animation_layer but not tracked in brick_widgets.
+        Used by undo to clean up ghost trails and other leftover widgets left by
+        interrupted animations."""
+        tracked = {self.brick_widgets[r][c]
+                   for r in range(FIELD_SIZE)
+                   for c in range(FIELD_SIZE)
+                   if self.brick_widgets[r][c] is not None}
+        swept = []
+        for widget in list(self.animation_layer.children):
+            if isinstance(widget, BrickWidget) and widget not in tracked:
+                Animation.cancel_all(widget)
+                spawner = self.ghost_spawners.pop(widget, None)
+                if spawner is not None:
+                    spawner.cancel()
+                self.animation_layer.remove_widget(widget)
+                swept.append(widget.uid)
+        if swept:
+            print(f"DIAG: sweep_orphan_widgets: removed {len(swept)} widgets: {swept[:10]}{'...' if len(swept) > 10 else ''}")
 
     def draw_grid_lines(self, *args):
         self.game_grid.canvas.after.clear()
