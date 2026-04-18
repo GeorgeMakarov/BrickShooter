@@ -83,7 +83,41 @@ Three honest paths, each changes the rest of the plan:
 
 **Option B (Godot)** best matches the stated goals: effects you can see in Android games (built in), engine-agnostic domain (natural in Godot), and a static-file browser build with no server. Option C is second choice if you prefer a pure-web stack and never need a desktop/mobile build. Option A is only attractive if staying in Python matters more than the other goals.
 
-## 5. Phased migration (assuming Option B)
+## 5. Testing strategy
+
+Tests are the load-bearing artefact that lets us port between engines without regressions. The same assertions run against the Python v1 model today and against the GDScript v2 port tomorrow — if both stay green, the port is correct.
+
+| Layer | Framework | What it covers | When it runs |
+|---|---|---|---|
+| Domain (Python, v1 + v2) | `pytest` | Pure rules: shot validation, resolution cycle, matching, scoring, crossers, refill, history, game-over. No UI. | Locally on save; pre-commit; any CI. Fast (< 1 s). |
+| Domain (GDScript, v2) | `GUT` (Godot Unit Test) | Same assertions as Python, translated. Proves the port is behaviourally identical. | Run in Godot editor or headless via `godot --script`. |
+| Integration (v2) | GUT scene tests | `ShootBrick` / `Undo` use cases end-to-end against a real `GameNode`, verifying the event stream reaches the presenter. | On demand; CI if set up. |
+| Smoke (v2 web) | Playwright or manual checklist | Web build loads, one shot lands, undo reverts, score updates. | Before each deploy to the server. |
+
+### Coverage targets
+
+- **Domain**: every public method of `GameModel` / its v2 equivalent has at least one happy-path and one failure-path test. Already done for v1 (20 cases, committed `4a48300`).
+- **Event emission** (added in Phase 1): each domain event type (`BrickShot`, `BrickMoved`, `BrickMatched`, `BrickCrossed`, `LaunchZoneRefilled`, `ScoreChanged`, `StateReverted`, `GameOver`) has at least one test asserting it is emitted in the right situation, in the right order, with the right payload.
+- **No coverage %** target — coverage numbers are gameable. Focus is on rules, not lines.
+
+### Running tests
+
+```
+# v1
+cd v1 && .venv/Scripts/python.exe -m pytest tests/ -v
+
+# v2 domain (Phase 1+)
+cd v2 && python -m pytest tests/ -v
+
+# v2 Godot (Phase 2+)
+godot --headless --script res://tests/run_all.gd
+```
+
+### CI
+
+Deferred until after Phase 2: GitHub Actions workflow that installs Python + runs pytest on `v1/` and `v2/domain/`, then installs Godot and runs GUT on `v2/godot/`. Not required to merge individual phases, but should exist before Phase 3 deploy.
+
+## 6. Phased migration (assuming Option B)
 
 ### Target layout
 
@@ -129,14 +163,14 @@ Keeping `domain/` and `tests/` in Python under `v2/` lets rules be verified with
 - Persistence (score via `localStorage`).
 - Optional: Android APK export from same project.
 
-## 6. Risks & open questions
+## 7. Risks & open questions
 
 - **Godot web build size**: ~15–30 MB first load. Acceptable for a personal deploy; gzip + caching make revisits instant.
 - **Browser audio autoplay**: Godot web requires user gesture before audio. Standard workaround (splash screen).
 - **GDScript vs C#**: GDScript is closer to Python and keeps deploy simple; C# web export is newer and less battle-tested. Recommend GDScript unless a reason appears.
 - **Effort estimate**: Phase 0: 2–4 h. Phase 1: ~1 day. Phase 2: 2–3 days. Phase 3: 2–4 h. Phase 4: open-ended.
 
-## 7. Decisions needed before starting
+## 8. Decisions needed before starting
 
 1. **Engine**: Godot (B) / Phaser+TS (C) / Python server (A) — default recommendation is B.
 2. **Phase 1 included?** I recommend yes, because it validates the event model cheaply; but if you're confident in the port, we can go straight from v1 tests to GDScript.
