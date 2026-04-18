@@ -70,17 +70,17 @@ Events tell the presenter exactly what happened and when. Motion trails, particl
 | Layer | Tech | Role |
 |---|---|---|
 | Domain | Python 3.10 (stdlib only) | Authoritative rules. Importable from any adapter. |
-| Backend server | FastAPI + uvicorn | `/ws` endpoint, static hosting of the frontend bundle, TLS termination. Single process. |
+| Backend server | FastAPI + uvicorn | `/ws` endpoint, static hosting of the frontend bundle. Single process, HTTP only. |
 | Transport | WebSocket, JSON frames | Bidirectional event + input stream. One connection per client. |
 | Frontend bundler | Vite + TypeScript | Dev server with HMR; `vite build` produces the static bundle the Python app serves. |
 | Frontend renderer | Phaser 3 | Particle emitters, tweens, sprite sheets, input handling. Mature. |
 | Frontend tests | Vitest (unit) + Playwright (smoke) | Vitest for pure TS (event decoder, transport). Playwright for one end-to-end shot-undo-score cycle. |
 | Backend tests | pytest + Starlette `TestClient` | Domain unit tests + WS integration tests that drive a full game over a fake socket. |
-| Deployment | Single `uvicorn` process, systemd unit on user's server | No nginx. TLS via `--ssl-keyfile`/`--ssl-certfile` or a Cloudflare tunnel. |
+| Deployment | Single `uvicorn` process, systemd unit on user's server | No nginx, no TLS — plain HTTP on a port. |
 
 ### Why these choices
 
-- **FastAPI + uvicorn**: async WS out of the box; static file mount is one line; widely understood; TLS can terminate in the same process.
+- **FastAPI + uvicorn**: async WS out of the box; static file mount is one line; widely understood.
 - **Phaser 3 over PixiJS/raw canvas**: particles, tweens, input, asset pipeline all built-in — most of what we hand-rolled in Kivy disappears.
 - **TypeScript over JS**: the event contract is the seam between server and client; static types catch drift between dataclass fields and JSON keys.
 - **Vite**: dev server is fast; production build is a static `dist/` folder the Python app serves verbatim.
@@ -195,8 +195,7 @@ Exit criterion: `npm run dev` + `python -m v2.backend` → browser shows the gam
 2. Python app mounts `v2/frontend/dist/` at `/` via `StaticFiles`.
 3. `python -m v2.backend --host 0.0.0.0 --port 8000`.
 4. **On the server**: systemd unit (`brickshooter.service`) running uvicorn under a dedicated user. Logs to journald.
-5. **TLS**: either uvicorn's `--ssl-keyfile` + Let's Encrypt cert, or a Cloudflare tunnel if you already use one. The app MUST listen on HTTPS for WS (browser won't open `ws://` from an `https://` page).
-6. **Smoke test**: Playwright against the deployed URL — shoot, undo, score change. Green → send dad the link.
+5. **Smoke test**: Playwright against the deployed URL — shoot, undo, score change. Green → send dad the link.
 
 Exit criterion: dad opens the URL on his phone and plays.
 
@@ -217,18 +216,15 @@ Mobile touch tuning; score persistence (server-side JSON file or SQLite); SFX; o
 ## 8. Risks & open questions
 
 - **Server uptime**: the game needs the Python process alive. systemd with `Restart=always` covers crashes; host reboots are on the user.
-- **TLS**: mandatory for WS from a deployed frontend. Decision: Let's Encrypt on the server, or Cloudflare tunnel. Blocks Phase 4.
 - **WS latency** over WAN: 30–80 ms RTT for input → event echo. Acceptable for a turn-based puzzle; unacceptable for twitch action. Current game is turn-based, so fine.
 - **Concurrency**: one `Game` instance per WS connection, held in memory on the server. Trivial for single-user; if dad and others play simultaneously, fine; if it ever becomes multi-user-per-room, revisit.
-- **Effort estimate** (from here): Phase 1 remaining: 1–1.5 days. Phase 2: 1 day. Phase 3: 2–3 days. Phase 4: half a day (assuming TLS is sorted). Phase 5: half a day with pywebview.
+- **Effort estimate** (from here): Phase 1 remaining: 1–1.5 days. Phase 2: 1 day. Phase 3: 2–3 days. Phase 4: 2–4 h (plain HTTP). Phase 5: half a day with pywebview.
 
-## 9. Decisions still needed
+## 9. Decisions
 
-1. **TLS approach** for Phase 4: Let's Encrypt directly on the server, or Cloudflare tunnel?
-2. **Scope for v2**: parity with v1 + effects, or also add features (levels, SFX, leaderboard, mobile PWA manifest)?
-3. **Native window adapter in Phase 5**: pywebview / Qt / refactored Kivy / skip?
-
-Decided:
+All decided:
 - Stack: Python backend + TypeScript/Phaser frontend, one process serves both. (Shape X.)
-- Phase 1 included: yes (in progress, sub-task 1 done).
-- No Godot, no nginx.
+- No Godot, no nginx, no TLS — plain HTTP on a port.
+- Scope for v2: parity with v1 + visual effects. No new features (levels, SFX, leaderboard, etc.) in this migration.
+- Phase 1: included (in progress, sub-task 1 done).
+- Phase 5 native window: **pywebview**. Cheapest path to a local desktop shell; reuses the web frontend verbatim; engine-swap principle is already exercised by v1 Kivy sitting alongside v2 web.
