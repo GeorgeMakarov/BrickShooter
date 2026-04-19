@@ -57,10 +57,17 @@ export interface StateReverted {
   score: number;
 }
 
+export interface LevelCleared {
+  type: "LevelCleared";
+  level: number;
+}
+
 export interface GameOver {
   type: "GameOver";
   reason: string;
   won: boolean;
+  level: number;
+  score: number;
 }
 
 export type DomainEvent =
@@ -71,6 +78,7 @@ export type DomainEvent =
   | LaunchZoneRefilled
   | ScoreChanged
   | StateReverted
+  | LevelCleared
   | GameOver;
 
 /**
@@ -86,6 +94,7 @@ export type BrickState = {
 export interface Snapshot {
   type: "snapshot";
   score: number;
+  level: number;
   field: BrickState[][];
 }
 
@@ -122,6 +131,7 @@ const EVENT_TYPES = new Set<DomainEvent["type"]>([
   "LaunchZoneRefilled",
   "ScoreChanged",
   "StateReverted",
+  "LevelCleared",
   "GameOver",
 ]);
 

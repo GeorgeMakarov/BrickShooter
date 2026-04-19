@@ -69,7 +69,7 @@ describe("GameSocket", () => {
     sock.onSnapshot((s) => received.push(s));
     sock.connect();
 
-    const snap: Snapshot = { type: "snapshot", score: 0, field: [] };
+    const snap: Snapshot = { type: "snapshot", score: 0, level: 1, field: [] };
     created[0].simulateMessage(snap);
 
     expect(received).toEqual([snap]);

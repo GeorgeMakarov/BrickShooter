@@ -26,6 +26,14 @@ def test_snapshot_includes_score():
     assert frame["score"] == 42
 
 
+def test_snapshot_includes_level():
+    g = Game(pick_color=lambda: 3)
+    g.new_game()
+    g.level = 5
+    frame = encode_snapshot(g)
+    assert frame["level"] == 5
+
+
 def test_snapshot_field_matches_dimensions():
     g = Game(pick_color=lambda: 3)
     g.new_game()

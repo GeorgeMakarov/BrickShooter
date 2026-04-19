@@ -25,7 +25,10 @@ class RecordingEffects implements SceneEffects {
   crossBrick(from: [number, number], to: [number, number], color: number): void { this.record("crossBrick", from, to, color); }
   spawnBrick(cell: [number, number], color: number): void { this.record("spawnBrick", cell, color); }
   updateScore(total: number, delta: number): void { this.record("updateScore", total, delta); }
-  showGameOver(reason: string, won: boolean): void { this.record("showGameOver", reason, won); }
+  showLevelCleared(level: number): void { this.record("showLevelCleared", level); }
+  showGameOver(reason: string, won: boolean, level: number, score: number): void {
+    this.record("showGameOver", reason, won, level, score);
+  }
   resync(): void { this.record("resync"); }
 }
 
@@ -78,9 +81,15 @@ describe("dispatchEvent", () => {
     expect(fx.calls).toEqual(["resync"]);
   });
 
-  it("GameOver -> showGameOver(reason, won)", () => {
-    const fx = dispatch({ type: "GameOver", reason: "Board cleared.", won: true });
+  it("LevelCleared -> showLevelCleared(level)", () => {
+    const fx = dispatch({ type: "LevelCleared", level: 3 });
+    expect(fx.calls).toEqual(["showLevelCleared"]);
+    expect(fx.args.showLevelCleared).toEqual([3]);
+  });
+
+  it("GameOver -> showGameOver(reason, won, level, score)", () => {
+    const fx = dispatch({ type: "GameOver", reason: "No more moves.", won: false, level: 3, score: 240 });
     expect(fx.calls).toEqual(["showGameOver"]);
-    expect(fx.args.showGameOver).toEqual(["Board cleared.", true]);
+    expect(fx.args.showGameOver).toEqual(["No more moves.", false, 3, 240]);
   });
 });

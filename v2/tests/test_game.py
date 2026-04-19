@@ -22,6 +22,7 @@ from domain.events import (
     BrickShot,
     GameOver,
     LaunchZoneRefilled,
+    LevelCleared,
     ScoreChanged,
     StateReverted,
 )
@@ -223,27 +224,91 @@ class TestUndo:
 # --- game over ---------------------------------------------------------
 
 
-class TestGameOver:
-    def test_win_when_play_area_cleared(self):
-        """An arbitrary shot that, after resolution, leaves the play area
-        entirely void produces a GameOver(won=True) event."""
+class TestLevelProgression:
+    def test_clearing_play_area_emits_level_cleared_not_game_over(self):
+        """Sessions continue across a cleared level: emit LevelCleared,
+        advance the level, rebuild the board, keep the score."""
         g = Game(pick_color=lambda: 5, num_obstacles=0)
         g.new_game()
-        # Manually clear the play area and set up a shot that leaves it empty.
+        pre_level = g.level
+        # Manually clear the play area, place a colour-5 pair so the shot
+        # completes a triplet and leaves the play area empty.
         for r in range(PLAY_AREA_START, PLAY_AREA_END):
             for c in range(PLAY_AREA_START, PLAY_AREA_END):
                 g.field[r][c] = Brick()
-        # Put three same-colour bricks so the shot triggers a match and leaves
-        # the play area empty afterwards.
         row = PLAY_AREA_START + 2
         place(g, row, PLAY_AREA_START + 1, color=5)
         place(g, row, PLAY_AREA_START + 2, color=5)
 
         events = g.shoot((row, PLAY_AREA_START - 1))
 
-        go = [e for e in events if isinstance(e, GameOver)]
-        assert go and go[0].won is True
+        cleared = [e for e in events if isinstance(e, LevelCleared)]
+        assert cleared, "expected LevelCleared"
+        assert cleared[0].level == pre_level
+        # GameOver should NOT fire on a clear.
+        assert not any(isinstance(e, GameOver) for e in events)
+        # Level bumped.
+        assert g.level == pre_level + 1
 
+    def test_score_persists_across_level_advance(self):
+        g = Game(pick_color=lambda: 5, num_obstacles=0)
+        g.new_game()
+        g.score = 150  # pretend we scored earlier
+        for r in range(PLAY_AREA_START, PLAY_AREA_END):
+            for c in range(PLAY_AREA_START, PLAY_AREA_END):
+                g.field[r][c] = Brick()
+        row = PLAY_AREA_START + 2
+        place(g, row, PLAY_AREA_START + 1, color=5)
+        place(g, row, PLAY_AREA_START + 2, color=5)
+
+        g.shoot((row, PLAY_AREA_START - 1))
+
+        # Match added points; bump is the base 30 (3 * 10 * 1) plus whatever.
+        # The important invariant: score didn't reset.
+        assert g.score >= 150
+
+    def test_next_level_has_more_obstacles(self):
+        """level 1 → 2 obstacles; after clearing, level 2 → 3 obstacles."""
+        g = Game(pick_color=lambda: 5)  # no override — level-based obstacles
+        g.new_game()
+        assert g.num_obstacles == 2
+
+        # Short-cut: clear the play area and poke _check_level_or_game_over
+        # directly; the integration test above exercises the full flow.
+        for r in range(PLAY_AREA_START, PLAY_AREA_END):
+            for c in range(PLAY_AREA_START, PLAY_AREA_END):
+                g.field[r][c] = Brick()
+        events = g._check_level_or_game_over()  # type: ignore[attr-defined]
+        assert any(isinstance(e, LevelCleared) for e in events)
+        assert g.level == 2
+        assert g.num_obstacles == 3
+        # Play area now has exactly 3 STAND bricks (the new level's obstacles).
+        obstacles = [
+            (r, c)
+            for r in range(PLAY_AREA_START, PLAY_AREA_END)
+            for c in range(PLAY_AREA_START, PLAY_AREA_END)
+            if g.field[r][c].intention == CellIntention.STAND
+        ]
+        assert len(obstacles) == 3
+
+    def test_history_cleared_across_level_transition(self):
+        """Undo must not cross level boundaries — the pre-clear field no
+        longer exists once the new level sets up."""
+        g = Game(pick_color=lambda: 5, num_obstacles=0)
+        g.new_game()
+        # Seed one saved snapshot so history isn't already empty.
+        g.history.save(g.field, 0)
+        assert g.history.depth == 1
+        for r in range(PLAY_AREA_START, PLAY_AREA_END):
+            for c in range(PLAY_AREA_START, PLAY_AREA_END):
+                g.field[r][c] = Brick()
+
+        g._check_level_or_game_over()  # type: ignore[attr-defined]
+
+        assert g.history.depth == 0
+
+
+class TestGameOver:
     def test_no_game_over_when_shots_remain(self):
         g = empty_game()
         g.new_game()
@@ -253,6 +318,26 @@ class TestGameOver:
         events = g.shoot((row, PLAY_AREA_START - 1))
 
         assert not any(isinstance(e, GameOver) for e in events)
+
+    def test_game_over_carries_level_and_score(self):
+        g = Game(pick_color=lambda: 5, num_obstacles=0)
+        g.new_game()
+        g.level = 3
+        g.score = 240
+        # Empty the entire board (play + launchers) so no shot is possible.
+        for r in range(FIELD_SIZE):
+            for c in range(FIELD_SIZE):
+                g.field[r][c] = Brick()
+        # Add a single lone brick in the play area so it isn't treated as an
+        # empty-area win.
+        place(g, PLAY_AREA_START + 2, PLAY_AREA_START + 2, color=1)
+
+        events = g._check_level_or_game_over()  # type: ignore[attr-defined]
+
+        go = [e for e in events if isinstance(e, GameOver)]
+        assert go and go[0].won is False
+        assert go[0].level == 3
+        assert go[0].score == 240
 
 
 # --- event ordering ----------------------------------------------------

@@ -1,13 +1,21 @@
 """Game facade.
 
-Owns the field, score, and undo history. Implements GameInputPort. Returns
-domain events from every use case; adapters push those events to their
-presenter.
+Owns the field, score, level, and undo history. Implements GameInputPort.
+Returns domain events from every use case; adapters push those events to
+their presenter.
 
-Resolution cycle (after a shot or revert): repeatedly run
+Session model:
+  - new_game() starts at level 1, score 0.
+  - Each level puts (level + 1) obstacles in the play area on setup.
+  - Clearing the play area emits LevelCleared and auto-advances: level + 1,
+    new obstacles, score preserved.
+  - GameOver(won=False) fires only when no shot is possible on the current
+    board — that's the real session end; the scoreboard records it then.
+
+Resolution cycle (after a shot): repeatedly run
   movement step → crosser step → (if no moves:) match step → refill step
 until a full round produces no changes. A ScoreChanged is emitted after every
-match batch; a GameOver is emitted at the end of the cycle if applicable.
+match batch.
 """
 
 import random
@@ -23,6 +31,7 @@ from domain.constants import (
 from domain.events import (
     DomainEvent,
     GameOver,
+    LevelCleared,
     ScoreChanged,
 )
 from domain.history import HistoryStack
@@ -43,41 +52,36 @@ class Game:
         self,
         num_colors: int = 7,
         pick_color: Optional[PickColor] = None,
-        num_obstacles: int = 2,
+        num_obstacles: Optional[int] = None,
         rng: Optional[random.Random] = None,
     ) -> None:
+        """
+        `num_obstacles`:
+          - None  → defaults to `level + 1` (progressive difficulty)
+          - int   → fixed override, useful for deterministic tests
+        """
         self.num_colors = num_colors
         self._rng = rng or random.Random()
         self._pick_color: PickColor = pick_color or (lambda: self._rng.randint(0, num_colors - 1))
-        self._num_obstacles = num_obstacles
+        self._num_obstacles_override = num_obstacles
+        self.level: int = 1
         self.field: Field = _empty_field()
         self.score: int = 0
         self.history = HistoryStack()
 
+    @property
+    def num_obstacles(self) -> int:
+        if self._num_obstacles_override is not None:
+            return self._num_obstacles_override
+        return self.level + 1
+
     # --- GameInputPort -------------------------------------------------
 
     def new_game(self) -> list[DomainEvent]:
-        self.field = _empty_field()
+        self.level = 1
         self.score = 0
         self.history.clear()
-        # Populate every launcher cell with a STAND brick.
-        for r, c in _all_launcher_cells():
-            self.field[r][c] = Brick(
-                intention=CellIntention.STAND,
-                color_index=self._pick_color(),
-            )
-        # v1 parity: sprinkle a few STAND obstacles in the play area so the
-        # very first shot has something to aim at.
-        placed = 0
-        while placed < self._num_obstacles:
-            r = self._rng.randint(PLAY_AREA_START, PLAY_AREA_END - 1)
-            c = self._rng.randint(PLAY_AREA_START, PLAY_AREA_END - 1)
-            if self.field[r][c].intention == CellIntention.VOID:
-                self.field[r][c] = Brick(
-                    intention=CellIntention.STAND,
-                    color_index=self._pick_color(),
-                )
-                placed += 1
+        self._setup_board()
         # Caller reads the field directly for the initial draw; events start
         # flowing on the first action.
         return []
@@ -93,7 +97,7 @@ class Game:
 
         events: list[DomainEvent] = list(shot_events)
         events.extend(self._resolve())
-        events.extend(self._check_game_over())
+        events.extend(self._check_level_or_game_over())
         return events
 
     def undo(self) -> list[DomainEvent]:
@@ -139,14 +143,41 @@ class Game:
             if not moves and not crossed:
                 return events
 
-    # --- game over -----------------------------------------------------
+    # --- level / game over ---------------------------------------------
 
-    def _check_game_over(self) -> list[DomainEvent]:
+    def _check_level_or_game_over(self) -> list[DomainEvent]:
         if _is_play_area_empty(self.field):
-            return [GameOver(reason="Board cleared.", won=True)]
+            cleared = self.level
+            self.level += 1
+            self.history.clear()  # can't undo across a level transition
+            self._setup_board()
+            return [LevelCleared(level=cleared)]
         if not _any_shot_possible(self.field):
-            return [GameOver(reason="No more moves.", won=False)]
+            return [GameOver(reason="No more moves.", won=False, level=self.level, score=self.score)]
         return []
+
+    # --- setup ---------------------------------------------------------
+
+    def _setup_board(self) -> None:
+        """Populate launchers and sprinkle obstacles in the play area. Leaves
+        level/score/history alone."""
+        self.field = _empty_field()
+        for r, c in _all_launcher_cells():
+            self.field[r][c] = Brick(
+                intention=CellIntention.STAND,
+                color_index=self._pick_color(),
+            )
+        placed = 0
+        target = self.num_obstacles
+        while placed < target:
+            r = self._rng.randint(PLAY_AREA_START, PLAY_AREA_END - 1)
+            c = self._rng.randint(PLAY_AREA_START, PLAY_AREA_END - 1)
+            if self.field[r][c].intention == CellIntention.VOID:
+                self.field[r][c] = Brick(
+                    intention=CellIntention.STAND,
+                    color_index=self._pick_color(),
+                )
+                placed += 1
 
 
 # --- helpers -----------------------------------------------------------

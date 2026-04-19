@@ -91,14 +91,22 @@ describe("decodeEvent", () => {
     expect(e.score).toBe(42);
   });
 
-  it("decodes GameOver with won flag", () => {
+  it("decodes GameOver with won flag, level, and score", () => {
     const e = decodeEvent({
       type: "GameOver",
-      reason: "Board cleared.",
-      won: true,
+      reason: "No more moves.",
+      won: false,
+      level: 3,
+      score: 240,
     }) as GameOver;
-    expect(e.won).toBe(true);
-    expect(e.reason).toContain("clear");
+    expect(e.won).toBe(false);
+    expect(e.level).toBe(3);
+    expect(e.score).toBe(240);
+  });
+
+  it("decodes LevelCleared", () => {
+    const e = decodeEvent({ type: "LevelCleared", level: 2 });
+    expect(e.type).toBe("LevelCleared");
   });
 
   it("throws when type discriminator is missing", () => {

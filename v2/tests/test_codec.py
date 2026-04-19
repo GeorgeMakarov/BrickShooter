@@ -17,6 +17,7 @@ from domain.events import (
     DomainEvent,
     GameOver,
     LaunchZoneRefilled,
+    LevelCleared,
     ScoreChanged,
     StateReverted,
 )
@@ -30,7 +31,8 @@ ALL_EVENTS = [
     LaunchZoneRefilled(new_cell=(5, 15), color_index=7),
     ScoreChanged(delta=30, total=130),
     StateReverted(score=42),
-    GameOver(reason="Board cleared.", won=True),
+    LevelCleared(level=2),
+    GameOver(reason="No more moves.", won=False, level=3, score=240),
 ]
 
 
@@ -95,6 +97,7 @@ class TestRegistry:
         known = set(EVENT_TYPES.values())
         expected = {
             BrickShot, BrickMoved, BrickMatched, BrickCrossed,
-            LaunchZoneRefilled, ScoreChanged, StateReverted, GameOver,
+            LaunchZoneRefilled, ScoreChanged, StateReverted,
+            LevelCleared, GameOver,
         }
         assert known == expected

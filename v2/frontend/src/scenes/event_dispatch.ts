@@ -20,7 +20,8 @@ export interface SceneEffects {
   crossBrick(from: Cell, to: Cell, colorIndex: number): void;
   spawnBrick(cell: Cell, colorIndex: number): void;
   updateScore(total: number, delta: number): void;
-  showGameOver(reason: string, won: boolean): void;
+  showLevelCleared(level: number): void;
+  showGameOver(reason: string, won: boolean, level: number, score: number): void;
   resync(): void;
 }
 
@@ -48,8 +49,11 @@ export function dispatchEvent(event: DomainEvent, effects: SceneEffects): void {
     case "StateReverted":
       effects.resync();
       return;
+    case "LevelCleared":
+      effects.showLevelCleared(event.level);
+      return;
     case "GameOver":
-      effects.showGameOver(event.reason, event.won);
+      effects.showGameOver(event.reason, event.won, event.level, event.score);
       return;
     default: {
       const exhaustive: never = event;

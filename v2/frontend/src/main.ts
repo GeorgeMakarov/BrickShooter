@@ -19,6 +19,7 @@ const DIFFICULTY_KEY = "brickshooter.difficulty";
 // --- DOM refs -------------------------------------------------------------
 
 const scoreEl = document.getElementById("score") as HTMLSpanElement;
+const levelEl = document.getElementById("level") as HTMLSpanElement;
 const overlayEl = document.getElementById("overlay") as HTMLDivElement;
 const overlayMsgEl = document.getElementById("overlay-msg") as HTMLParagraphElement;
 const overlayScoresEl = document.getElementById("overlay-scores") as HTMLDivElement;
@@ -31,6 +32,7 @@ const difficultyEl = document.getElementById("difficulty") as HTMLSelectElement;
 // --- state ---------------------------------------------------------------
 
 let currentScore = 0;
+let currentLevel = 1;
 let hasProgress = false; //!< true after the first shot of the current game
 let difficulty: Difficulty = (localStorage.getItem(DIFFICULTY_KEY) as Difficulty | null) ?? "normal";
 difficultyEl.value = difficulty;
@@ -60,6 +62,16 @@ socket.onEvent((event) => {
 function onScore(total: number): void {
   currentScore = total;
   scoreEl.textContent = total.toString();
+}
+
+function onLevel(level: number): void {
+  currentLevel = level;
+  levelEl.textContent = level.toString();
+}
+
+function onLevelCleared(_level: number): void {
+  // Keep hasProgress true — the session continues. Banner is shown by the
+  // Phaser scene; no DOM overlay to open.
 }
 
 interface OverlayAction {
@@ -127,11 +139,15 @@ function confirmAndNewGame(): void {
   });
 }
 
-function onGameOver(reason: string, won: boolean): void {
-  const { insertedAt } = recordScore(currentScore, difficulty);
+function onGameOver(reason: string, won: boolean, level: number, score: number): void {
+  // The server is authoritative for the final score/level — prefer its values
+  // over currentScore/currentLevel in case events were still in-flight.
+  const finalScore = score || currentScore;
+  const finalLevel = level || currentLevel;
+  const { insertedAt } = recordScore(finalScore, difficulty);
   hasProgress = false; // game already over — no progress to protect
   showOverlay({
-    message: (won ? "🎉  " : "💀  ") + reason,
+    message: `${won ? "🎉" : "💀"}  ${reason} Level ${finalLevel}, score ${finalScore}.`,
     showScores: true,
     highlightIndex: insertedAt,
     actions: [
@@ -196,7 +212,7 @@ new Phaser.Game({
   scale: { mode: Phaser.Scale.NONE },
   callbacks: {
     preBoot: (game) => {
-      game.scene.start("GridScene", { socket, onScore, onGameOver });
+      game.scene.start("GridScene", { socket, onScore, onLevel, onLevelCleared, onGameOver });
     },
   },
 });

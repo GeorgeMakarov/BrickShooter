@@ -23,7 +23,7 @@ class RecordingLayer implements SpriteLayer {
 }
 
 function snapshot(field: Snapshot["field"], score = 0): Snapshot {
-  return { type: "snapshot", score, field };
+  return { type: "snapshot", score, level: 1, field };
 }
 
 function stand(color: number): Snapshot["field"][number][number] {

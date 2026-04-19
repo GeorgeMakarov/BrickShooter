@@ -13,6 +13,7 @@ def encode_snapshot(game: Game) -> dict:
     return {
         "type": "snapshot",
         "score": game.score,
+        "level": game.level,
         "field": [[_encode_brick(b) for b in row] for row in game.field],
     }
 

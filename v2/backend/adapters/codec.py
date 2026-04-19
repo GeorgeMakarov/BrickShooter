@@ -20,6 +20,7 @@ from domain.events import (
     DomainEvent,
     GameOver,
     LaunchZoneRefilled,
+    LevelCleared,
     ScoreChanged,
     StateReverted,
 )
@@ -35,6 +36,7 @@ EVENT_TYPES: dict[str, type[DomainEvent]] = {
         LaunchZoneRefilled,
         ScoreChanged,
         StateReverted,
+        LevelCleared,
         GameOver,
     )
 }

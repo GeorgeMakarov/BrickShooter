@@ -76,6 +76,16 @@ class StateReverted(DomainEvent):
 
 
 @dataclass(frozen=True)
+class LevelCleared(DomainEvent):
+    """Play area emptied — session continues at the next level with the same
+    score. Payload is the level that was just cleared."""
+
+    level: int
+
+
+@dataclass(frozen=True)
 class GameOver(DomainEvent):
     reason: str
     won: bool
+    level: int = 1
+    score: int = 0

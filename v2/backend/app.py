@@ -154,11 +154,12 @@ async def game_ws(ws: WebSocket) -> None:
             for frame in presenter.drain():
                 await ws.send_json(frame)
 
-            # new_game resets state; undo restores an older state. In both
-            # cases the client needs a fresh snapshot to avoid drift — rebuilding
-            # from events alone is error-prone across these transitions.
-            reverted = any(type(e).__name__ == "StateReverted" for e in events)
-            if msg_type == "new_game" or reverted:
+            # new_game resets state; undo restores an older state; LevelCleared
+            # rebuilds the field for the next level. All three need a fresh
+            # snapshot so the client repaints atomically — rebuilding from
+            # events alone is error-prone across these transitions.
+            type_names = {type(e).__name__ for e in events}
+            if msg_type == "new_game" or "StateReverted" in type_names or "LevelCleared" in type_names:
                 await ws.send_json(encode_snapshot(game))
                 log_snapshot(sid, game)
 

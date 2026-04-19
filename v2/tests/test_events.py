@@ -17,6 +17,7 @@ from domain.events import (
     DomainEvent,
     GameOver,
     LaunchZoneRefilled,
+    LevelCleared,
     ScoreChanged,
     StateReverted,
 )
@@ -83,15 +84,24 @@ class TestStateReverted:
         assert e.score == 42
 
 
-class TestGameOver:
-    def test_win(self):
-        e = GameOver(reason="Board cleared", won=True)
-        assert e.won is True
-        assert "clear" in e.reason.lower()
+class TestLevelCleared:
+    def test_payload(self):
+        e = LevelCleared(level=3)
+        assert e.level == 3
 
-    def test_loss(self):
-        e = GameOver(reason="No moves", won=False)
+
+class TestGameOver:
+    def test_loss_with_score_and_level(self):
+        e = GameOver(reason="No moves", won=False, level=4, score=120)
         assert e.won is False
+        assert e.level == 4
+        assert e.score == 120
+
+    def test_legacy_defaults(self):
+        """Older call sites without level/score still work."""
+        e = GameOver(reason="x", won=False)
+        assert e.level == 1
+        assert e.score == 0
 
 
 class TestImmutability:

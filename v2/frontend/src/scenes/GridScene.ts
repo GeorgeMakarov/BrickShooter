@@ -34,7 +34,11 @@ const PLAY_BORDER = 0xffffff;
 export interface GridSceneDeps {
   socket: GameSocket;
   onScore: (total: number) => void;
-  onGameOver: (reason: string, won: boolean) => void;
+  /** Silent updates of the current level — fires on every snapshot. */
+  onLevel: (level: number) => void;
+  /** Celebratory "you cleared level N!" signal — fires only on LevelCleared. */
+  onLevelCleared: (level: number) => void;
+  onGameOver: (reason: string, won: boolean, level: number, score: number) => void;
 }
 
 interface BrickSprite {
@@ -47,7 +51,9 @@ export class GridScene extends Phaser.Scene implements SpriteLayer, SceneEffects
   private sprites = new Map<string, BrickSprite>();
   private socket!: GameSocket;
   private onScore!: (total: number) => void;
-  private onGameOver!: (reason: string, won: boolean) => void;
+  private onLevel!: (level: number) => void;
+  private onLevelCleared!: (level: number) => void;
+  private onGameOver!: (reason: string, won: boolean, level: number, score: number) => void;
 
   constructor() {
     super("GridScene");
@@ -56,6 +62,8 @@ export class GridScene extends Phaser.Scene implements SpriteLayer, SceneEffects
   init(data: GridSceneDeps): void {
     this.socket = data.socket;
     this.onScore = data.onScore;
+    this.onLevel = data.onLevel;
+    this.onLevelCleared = data.onLevelCleared;
     this.onGameOver = data.onGameOver;
   }
 
@@ -198,8 +206,32 @@ export class GridScene extends Phaser.Scene implements SpriteLayer, SceneEffects
     this.onScore(total);
   }
 
-  showGameOver(reason: string, won: boolean): void {
-    this.onGameOver(reason, won);
+  showLevelCleared(level: number): void {
+    this.onLevel(level + 1); // the server has already advanced — keep UI in sync
+    this.onLevelCleared(level);
+    // Brief on-canvas flash: a banner with "Level N Clear!" fading up and out.
+    const banner = this.add.text(
+      (FIELD_SIZE * CELL_SIZE) / 2,
+      (FIELD_SIZE * CELL_SIZE) / 2,
+      `Level ${level} Clear!`,
+      { fontSize: "32px", color: "#f1c40f", fontStyle: "bold" },
+    );
+    banner.setOrigin(0.5);
+    banner.setAlpha(0);
+    banner.setScale(0.7);
+    this.tweens.add({
+      targets: banner,
+      alpha: 1,
+      scale: 1.1,
+      duration: 250,
+      yoyo: true,
+      hold: 500,
+      onComplete: () => banner.destroy(),
+    });
+  }
+
+  showGameOver(reason: string, won: boolean, level: number, score: number): void {
+    this.onGameOver(reason, won, level, score);
   }
 
   resync(): void {
@@ -211,6 +243,7 @@ export class GridScene extends Phaser.Scene implements SpriteLayer, SceneEffects
   private applySnapshot(snapshot: Snapshot): void {
     renderSnapshot(snapshot, this, CELL_SIZE);
     this.onScore(snapshot.score);
+    this.onLevel(snapshot.level);
   }
 
   private destroySpriteAt(cell: Cell): void {
