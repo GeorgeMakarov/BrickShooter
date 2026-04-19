@@ -29,6 +29,14 @@ from domain.game import Game
 from .adapters.snapshot import encode_snapshot
 from .adapters.web_input import WebInput
 from .adapters.web_presenter import WebPresenter
+from .game_log import (
+    log_evict,
+    log_in,
+    log_join,
+    log_leave,
+    log_out,
+    log_snapshot,
+)
 
 
 app = FastAPI()
@@ -60,6 +68,7 @@ def _evict_idle_sessions(now: float | None = None) -> None:
     stale = [sid for sid, s in SESSIONS.items() if now - s.last_seen > SESSION_TTL_S]
     for sid in stale:
         SESSIONS.pop(sid, None)
+        log_evict(sid)
 
 
 def _new_game(difficulty: str) -> Game:
@@ -100,18 +109,24 @@ async def game_ws(ws: WebSocket) -> None:
     presenter = WebPresenter()
     router = WebInput(game)
 
+    client = f"{ws.client.host}:{ws.client.port}" if ws.client else "unknown"
+    log_join(sid, client)
+
     await ws.send_json({"type": "session", "id": sid})
     await ws.send_json(encode_snapshot(game))
+    log_snapshot(sid, game)
 
     try:
         while True:
             message = await ws.receive_json()
             session.touch()
+            log_in(sid, message)
             msg_type = message.get("type") if isinstance(message, dict) else None
 
             # Protocol-level request for a full state dump. Not a game input.
             if msg_type == "snapshot":
                 await ws.send_json(encode_snapshot(game))
+                log_snapshot(sid, game)
                 continue
 
             # A new_game with a difficulty payload swaps the underlying Game
@@ -124,6 +139,7 @@ async def game_ws(ws: WebSocket) -> None:
                 router = WebInput(game)
                 presenter = WebPresenter()
                 await ws.send_json(encode_snapshot(game))
+                log_snapshot(sid, game)
                 continue
 
             try:
@@ -133,6 +149,7 @@ async def game_ws(ws: WebSocket) -> None:
                 continue
 
             for event in events:
+                log_out(sid, event)
                 presenter.on_event(event)
             for frame in presenter.drain():
                 await ws.send_json(frame)
@@ -143,8 +160,10 @@ async def game_ws(ws: WebSocket) -> None:
             reverted = any(type(e).__name__ == "StateReverted" for e in events)
             if msg_type == "new_game" or reverted:
                 await ws.send_json(encode_snapshot(game))
+                log_snapshot(sid, game)
 
     except WebSocketDisconnect:
+        log_leave(sid)
         return
 
 

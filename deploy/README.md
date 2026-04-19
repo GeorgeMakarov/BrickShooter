@@ -16,6 +16,30 @@ Target: a Linux box (Debian/Ubuntu), systemd, single public port, no nginx.
 
 Logs go to journald: `journalctl -u brickshooter -f`.
 
+Gameplay lines are tagged per session. To extract dad's run for investigation:
+
+```bash
+# Find his session id from the JOIN line matching his IP:
+journalctl -u brickshooter --since "1 hour ago" | grep JOIN
+# Then pull that session's full trace:
+journalctl -u brickshooter --since "1 hour ago" | grep sid=XYZ > dad-session.log
+```
+
+Each line has one of these shapes:
+
+```
+JOIN     sid=XYZ client=IP:PORT
+LEAVE    sid=XYZ
+EVICT    sid=XYZ                       (idle-TTL eviction)
+IN       sid=XYZ msg={...}             (every incoming WS message)
+OUT      sid=XYZ ev=EventName payload={...}   (every emitted DomainEvent)
+SNAPSHOT sid=XYZ score=N hash=H [field=...]
+```
+
+Setting `BRICKSHOOTER_LOG_LEVEL=DEBUG` in `config.env` adds the full field
+to every SNAPSHOT line (~500 bytes each), so you can reconstruct the exact
+board at any moment without replaying events.
+
 ## One-time setup
 
 ```bash

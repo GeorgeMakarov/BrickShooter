@@ -8,6 +8,8 @@ import argparse
 
 import uvicorn
 
+from .logging_config import setup_logging
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(prog="brickshooter")
@@ -21,6 +23,8 @@ def main() -> None:
         help="max inbound WS frame size in bytes (default 64 KiB)",
     )
     args = parser.parse_args()
+
+    setup_logging()
 
     uvicorn.run(
         "backend.app:app",
