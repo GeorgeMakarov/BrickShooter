@@ -55,6 +55,13 @@ export class GridScene extends Phaser.Scene implements SpriteLayer, SceneEffects
   private onLevelCleared!: (level: number) => void;
   private onGameOver!: (reason: string, won: boolean, level: number, score: number) => void;
 
+  /** Centroids of every match in the current score pass — averaged on the
+   *  following `updateScore` so the +N popup lands where the work happened. */
+  private pendingMatchCentroids: Array<{ x: number; y: number }> = [];
+  /** Number of resolution passes since the last shot that produced a match.
+   *  Chain >= 2 means the shot's follow-on moves triggered additional matches. */
+  private chainDepth = 0;
+
   constructor() {
     super("GridScene");
   }
@@ -115,6 +122,10 @@ export class GridScene extends Phaser.Scene implements SpriteLayer, SceneEffects
   // --- SceneEffects --------------------------------------------------
 
   flashLauncher(cell: Cell): void {
+    // BrickShot is the "user action" boundary — reset chain state.
+    this.chainDepth = 0;
+    this.pendingMatchCentroids.length = 0;
+
     const [r, c] = cell;
     const cx = c * CELL_SIZE + CELL_SIZE / 2;
     const cy = r * CELL_SIZE + CELL_SIZE / 2;
@@ -212,6 +223,11 @@ export class GridScene extends Phaser.Scene implements SpriteLayer, SceneEffects
 
   matchCells(cells: Cell[], colorIndex: number): void {
     const colour = colorFor(colorIndex);
+    // Track the group's centroid so the +N popup can land here on the next
+    // ScoreChanged. Averaged later with any other groups cleared in the same
+    // pass.
+    let sumX = 0;
+    let sumY = 0;
     for (const cell of cells) {
       const sprite = this.sprites.get(cellKey(cell));
       // Burst at the cell's *logical* world centre, not the sprite's current
@@ -220,6 +236,8 @@ export class GridScene extends Phaser.Scene implements SpriteLayer, SceneEffects
       // the burst somewhere along its flight path instead of at the match.
       const centerX = cell[1] * CELL_SIZE + CELL_SIZE / 2;
       const centerY = cell[0] * CELL_SIZE + CELL_SIZE / 2;
+      sumX += centerX;
+      sumY += centerY;
       if (sprite) {
         this.sprites.delete(cellKey(cell));
         // Snap the sprite to the cell centre first, then shrink+fade it out,
@@ -238,6 +256,7 @@ export class GridScene extends Phaser.Scene implements SpriteLayer, SceneEffects
       }
       this.emitMatchBurst(centerX, centerY, colour);
     }
+    this.pendingMatchCentroids.push({ x: sumX / cells.length, y: sumY / cells.length });
 
     // Shake the camera when a big group lands, scaled to group size. Clamped
     // so a huge match doesn't make the game unplayable.
@@ -283,8 +302,68 @@ export class GridScene extends Phaser.Scene implements SpriteLayer, SceneEffects
     this.tweens.add({ targets: image, alpha: 1, duration: 200 });
   }
 
-  updateScore(total: number, _delta: number): void {
+  updateScore(total: number, delta: number): void {
     this.onScore(total);
+    if (this.pendingMatchCentroids.length > 0 && delta > 0) {
+      const { x, y } = this.averagePending();
+      this.spawnScorePopup(x, y, delta);
+      this.chainDepth += 1;
+      if (this.chainDepth >= 2) {
+        this.spawnComboPopup(x, y, this.chainDepth);
+      }
+      this.pendingMatchCentroids.length = 0;
+    }
+  }
+
+  private averagePending(): { x: number; y: number } {
+    const n = this.pendingMatchCentroids.length;
+    let x = 0;
+    let y = 0;
+    for (const p of this.pendingMatchCentroids) {
+      x += p.x;
+      y += p.y;
+    }
+    return { x: x / n, y: y / n };
+  }
+
+  private spawnScorePopup(x: number, y: number, delta: number): void {
+    const text = this.add.text(x, y, `+${delta}`, {
+      fontSize: "18px",
+      color: "#f1c40f",
+      fontStyle: "bold",
+      stroke: "#000000",
+      strokeThickness: 3,
+    });
+    text.setOrigin(0.5);
+    this.tweens.add({
+      targets: text,
+      y: y - 40,
+      alpha: 0,
+      duration: 800,
+      ease: "Cubic.easeOut",
+      onComplete: () => text.destroy(),
+    });
+  }
+
+  private spawnComboPopup(x: number, y: number, depth: number): void {
+    const text = this.add.text(x, y - 26, `Combo x${depth}!`, {
+      fontSize: "22px",
+      color: "#ff9800",
+      fontStyle: "bold",
+      stroke: "#000000",
+      strokeThickness: 4,
+    });
+    text.setOrigin(0.5);
+    text.setScale(0.6);
+    this.tweens.add({
+      targets: text,
+      y: y - 90,
+      scale: 1.2,
+      alpha: 0,
+      duration: 1100,
+      ease: "Cubic.easeOut",
+      onComplete: () => text.destroy(),
+    });
   }
 
   showLevelCleared(level: number): void {
