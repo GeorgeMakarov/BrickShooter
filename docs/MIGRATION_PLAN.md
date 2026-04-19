@@ -141,6 +141,28 @@ Write the test **before** the implementation change. Red → green → refactor.
 - Every `DomainEvent` type has a test asserting it is emitted in the right situation, order, and with the right payload.
 - Every WS message direction has a round-trip test (Python emits → TS decoder accepts, and vice versa for input messages).
 
+### Running tests
+
+Each version has its own virtualenv (dependency sets don't overlap — Kivy vs FastAPI/uvicorn).
+
+```
+# v1 — pinned for reference
+cd v1 && .venv/Scripts/python.exe -m pytest tests/ -v
+
+# v2 — current work
+cd v2 && .venv/Scripts/python.exe -m pytest tests/ -v
+
+# frontend (phase 3+)
+cd v2/frontend && npm test
+cd v2/frontend && npx playwright test
+```
+
+Bootstrap a missing venv:
+
+```
+cd v2 && py -3.10 -m venv .venv && .venv/Scripts/python.exe -m pip install -r requirements-dev.txt
+```
+
 ### CI (deferred until Phase 4)
 
 GitHub Actions: pytest on `v2/`, `vitest` on `v2/frontend/`, Playwright on a locally-booted backend. Not required to merge individual sub-tasks.

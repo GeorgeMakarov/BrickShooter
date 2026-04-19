@@ -2,6 +2,7 @@
 /v1/.venv
 /v1/.pytest_cache
 /v1/tests/__pycache__
+/v2/.venv
 /v2/.pytest_cache
 **/__pycache__
 /.claude
