@@ -1,0 +1,29 @@
+[Unit]
+Description=BrickShooter game server
+After=network.target
+
+[Service]
+Type=simple
+User=brickshooter
+Group=brickshooter
+WorkingDirectory=/opt/brickshooter/backend
+EnvironmentFile=/etc/brickshooter/config.env
+ExecStart=/opt/brickshooter/venv/bin/python -m backend \
+    --host ${HOST} --port ${PORT} --ws-max-size ${WS_MAX_SIZE}
+Restart=on-failure
+RestartSec=3
+
+# Hardening — restrict what the process can touch if it's ever compromised.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/brickshooter
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+MemoryMax=256M
+
+[Install]
+WantedBy=multi-user.target

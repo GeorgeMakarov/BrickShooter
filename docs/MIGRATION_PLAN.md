@@ -219,13 +219,84 @@ Exit criterion met: `python -m backend --port 8000` + `npm run dev` in `v2/front
 
 ### Phase 4 — Packaging and deploy
 
-1. `npm run build` → `v2/frontend/dist/`.
-2. Python app mounts `v2/frontend/dist/` at `/` via `StaticFiles`.
-3. `python -m v2.backend --host 0.0.0.0 --port 8000`.
-4. **On the server**: systemd unit (`brickshooter.service`) running uvicorn under a dedicated user. Logs to journald.
-5. **Smoke test**: Playwright against the deployed URL — shoot, undo, score change. Green → send dad the link.
+#### Pre-deploy (features that only affect backend/frontend, no infra changes)
 
-Exit criterion: dad opens the URL on his phone and plays.
+1. **Harden the backend** — add quotas for the public port:
+   - `--ws-max-size` limit (64 KiB, down from uvicorn's 16 MiB default)
+   - `MAX_SESSIONS` cap; reject new sessions when full
+   - Idle-session eviction on a TTL (default 30 min of no WS activity)
+2. **Difficulty presets** — `new_game` payload gains a `difficulty` field; three presets tune `num_colors` (Easy 5, Normal 7, Hard 9).
+3. **Scoreboard** — localStorage top-10 per browser, shown in the game-over overlay and a "Scores" button. Server stays stateless w.r.t. scores for now.
+4. **Frontend production build** — `npm run build` produces `v2/frontend/dist/`; FastAPI mounts it at `/` via `StaticFiles` so a single process serves the bundle + the `/ws` endpoint. In dev, Vite still serves at `:5173` and talks to `:8000` directly.
+
+#### Server layout (FHS-style on the VDS)
+
+```
+/opt/brickshooter/                         # app code (owned by root, world-readable)
+  ├─ backend/                              # v2/backend/ tree
+  ├─ frontend/                             # v2/frontend/dist/ (built bundle)
+  └─ venv/                                 # Python venv with runtime deps
+
+/var/lib/brickshooter/                     # mutable data (owned by brickshooter user)
+  └─ (reserved for future server-side state; nothing yet — scores are localStorage)
+
+/etc/brickshooter/config.env               # env vars: PORT, MAX_SESSIONS, SESSION_TTL_S
+/etc/systemd/system/brickshooter.service   # systemd unit
+```
+
+Logs go to journald (`journalctl -u brickshooter`). No `/var/log/brickshooter/`.
+
+#### systemd unit
+
+Repo ships a template at `deploy/brickshooter.service`. Key flags:
+
+```
+[Service]
+User=brickshooter
+Group=brickshooter
+EnvironmentFile=/etc/brickshooter/config.env
+ExecStart=/opt/brickshooter/venv/bin/python -m backend \
+    --host 0.0.0.0 --port ${PORT} --ws-max-size 65536
+Restart=on-failure
+RestartSec=3
+
+# Hardening
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/brickshooter
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+```
+
+#### Deploy steps
+
+1. Create user: `useradd -r -s /usr/sbin/nologin brickshooter`.
+2. `mkdir -p /opt/brickshooter /var/lib/brickshooter /etc/brickshooter`.
+3. `rsync -a v2/backend /opt/brickshooter/ && rsync -a v2/frontend/dist /opt/brickshooter/frontend/`.
+4. `python3.10 -m venv /opt/brickshooter/venv && /opt/brickshooter/venv/bin/pip install -r /opt/brickshooter/backend/requirements.txt` (or a trimmed runtime-only file).
+5. Drop `deploy/brickshooter.service` at `/etc/systemd/system/` and `deploy/config.env.example` at `/etc/brickshooter/config.env`.
+6. `systemctl daemon-reload && systemctl enable --now brickshooter`.
+7. Firewall: `ufw allow ${PORT}/tcp` (or nftables equivalent). Keep all other ports closed except SSH.
+8. **Smoke test**: open the URL from another device, play a round, F5 and confirm state persists.
+
+#### Attack-surface analysis
+
+| Attack | Mitigation (shipped in this phase) |
+|---|---|
+| Giant WS frame exhausts memory | `--ws-max-size 65536` caps inbound frame size |
+| Flooding new sessions | `MAX_SESSIONS` cap + idle-session TTL; refuse beyond the cap with a clear error frame |
+| Crafted input crashes parser | `WebInput` already rejects with `ValueError` and replies with `{"type":"error"}` without closing |
+| Path traversal on static mount | FastAPI `StaticFiles` rejects `..` traversals by default |
+| Process compromise → host damage | systemd hardening (`ProtectSystem=strict`, unprivileged user, no extra caps) |
+| Network abuse / floods | UFW/nftables rate limit on the game port; optional Cloudflare free tier in front |
+| Unauthenticated play (URL leak) | Deliberate: no auth, no PII. If restricted access wanted later, add a query-param token check in the WS handler. |
+
+#### Exit criterion
+
+Dad opens the URL, plays a round, closes the tab; next day opens the URL again and sees his previous state waiting. `systemctl status brickshooter` green, `journalctl -u brickshooter` shows clean logs.
 
 ### Phase 5 — Native window adapter (optional)
 

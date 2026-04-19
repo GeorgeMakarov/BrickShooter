@@ -37,7 +37,7 @@ class TestSessionPersistence:
         with client.websocket_connect("/ws") as ws:
             sid, _ = _expect_session_and_snapshot(ws)
             # Mutate server state so we can detect continuity on reconnect.
-            SESSIONS[sid].score = 777
+            SESSIONS[sid].game.score = 777
 
         # Reconnect with that sid — same Game should be returned, score preserved.
         with client.websocket_connect(f"/ws?sid={sid}") as ws:
@@ -56,6 +56,47 @@ class TestSessionPersistence:
             assert session["id"] != "stale-or-server-restarted"
             snapshot = ws.receive_json()
             assert snapshot["score"] == 0
+
+
+class TestSessionCap:
+    def test_new_connection_refused_when_cap_reached(self):
+        """Once MAX_SESSIONS is reached, new connections receive an error frame
+        and get closed with code 1013 (try again later)."""
+        from backend import app as app_module
+
+        SESSIONS.clear()
+        original_cap = app_module.MAX_SESSIONS
+        app_module.MAX_SESSIONS = 1
+        try:
+            client = TestClient(app)
+            with client.websocket_connect("/ws") as ws1:
+                _expect_session_and_snapshot(ws1)
+                # Second connection should be refused.
+                import pytest as _pytest
+                from starlette.websockets import WebSocketDisconnect as WSD
+                with _pytest.raises(WSD):
+                    with client.websocket_connect("/ws") as ws2:
+                        frame = ws2.receive_json()
+                        assert frame["type"] == "error"
+                        # Server will close the socket; a subsequent receive raises.
+                        ws2.receive_json()
+        finally:
+            app_module.MAX_SESSIONS = original_cap
+
+
+class TestNewGameWithDifficulty:
+    def test_new_game_with_difficulty_replaces_the_game(self):
+        SESSIONS.clear()
+        client = TestClient(app)
+        with client.websocket_connect("/ws") as ws:
+            sid, _ = _expect_session_and_snapshot(ws)
+            SESSIONS[sid].game.score = 100  # prove the Game gets replaced
+            ws.send_json({"type": "new_game", "difficulty": "easy"})
+            snap = ws.receive_json()
+            assert snap["type"] == "snapshot"
+            assert snap["score"] == 0
+            # num_colors of the new Game should be 5 (easy preset).
+            assert SESSIONS[sid].game.num_colors == 5
 
 
 class TestUndoOnFreshGame:
