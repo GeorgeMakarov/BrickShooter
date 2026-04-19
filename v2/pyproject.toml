@@ -1,0 +1,35 @@
+[project]
+name = "brickshooter"
+version = "2.0.0"
+description = "Color-match puzzle game — web-native port of the 1990s Delphi original."
+readme = { file = "../README.md", content-type = "text/markdown" }
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "George" }]
+
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "websockets>=13",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=9.0",
+    "httpx>=0.28",
+]
+
+[project.scripts]
+brickshooter = "backend.__main__:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = [
+    "backend",
+    "backend.adapters",
+    "domain",
+    "domain.rules",
+]

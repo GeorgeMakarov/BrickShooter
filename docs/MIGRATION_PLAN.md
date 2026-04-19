@@ -303,7 +303,7 @@ RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 
 Dad opens the URL, plays a round, closes the tab; next day opens the URL again and sees his previous state waiting. `systemctl status brickshooter` green, `journalctl -u brickshooter` shows clean logs.
 
-### Phase 5 — Native window adapter (optional)
+### Phase 5 — Native window adapter (optional) *(not started)*
 
 Second presenter adapter that implements `GamePresenterPort` against a local UI toolkit. Options, cheapest first:
 
@@ -313,9 +313,24 @@ Second presenter adapter that implements `GamePresenterPort` against a local UI 
 
 Exit criterion: `python -m v2.desktop` opens a window that plays the same game without needing a running server.
 
-### Phase 6 — Polish (open-ended)
+### Phase 6 — Polish *(done; session mechanics + server scoreboard + UI layout)*
 
-Mobile touch tuning; score persistence (server-side JSON file or SQLite); SFX; optional PWA manifest so dad can add the icon to his home screen.
+Shipped during migration:
+- Level progression (clearing the play area bumps level, bricks++, score persists)
+- Server-side scoreboard at `/var/lib/brickshooter/scores.json`
+- In-app name prompt + editable name chip
+- Corner layout: level / score / scores / name / undo / new-game / difficulty all in the previously-unused 3×3 corner regions
+- Per-session gameplay logging for post-hoc investigation
+
+Deferred to a follow-on track:
+- Visual effects polish (particles, shake, trails, combo feedback) — see `docs/EFFECTS_PLAN.md`
+- SFX
+- PWA manifest
+- Mobile touch tuning
+
+## Migration complete
+
+Tagged **`v2.0.0`** (commit `TBD`) — first stable release of the v2 web codebase. v1 remains frozen at `v1-final` as the visual reference. All phases 0–4 done; Phase 5 (native window) is optional and not started.
 
 ## 8. Risks & open questions
 
