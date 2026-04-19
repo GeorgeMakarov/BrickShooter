@@ -33,22 +33,31 @@ class _ShotGeometry:
 
 def shoot(field: Field, click_cell: Cell) -> list[BrickShot]:
     """Fire a shot from the tapped launcher cell. Mutates `field` on success."""
-    geometry = _launcher_geometry(*click_cell)
-    if geometry is None:
+    resolved = _resolve_shot(field, click_cell)
+    if resolved is None:
         return []
-
-    if field[geometry.target_cell[0]][geometry.target_cell[1]].intention != CellIntention.VOID:
-        return []
-
-    if not _has_obstacle(field, geometry.path_cells):
-        return []
-
-    ammo_cell = _innermost_ammo(field, geometry.ammo_cells)
-    if ammo_cell is None:
-        return []
-
+    geometry, ammo_cell = resolved
     field[ammo_cell[0]][ammo_cell[1]].intention = geometry.direction
     return [BrickShot(launcher_cell=click_cell, ammo_cell=ammo_cell, direction=geometry.direction_name)]
+
+
+def can_shoot(field: Field, click_cell: Cell) -> bool:
+    """True if shoot() would succeed for this cell. Does not mutate the field."""
+    return _resolve_shot(field, click_cell) is not None
+
+
+def _resolve_shot(field: Field, click_cell: Cell) -> tuple[_ShotGeometry, Cell] | None:
+    geometry = _launcher_geometry(*click_cell)
+    if geometry is None:
+        return None
+    if field[geometry.target_cell[0]][geometry.target_cell[1]].intention != CellIntention.VOID:
+        return None
+    if not _has_obstacle(field, geometry.path_cells):
+        return None
+    ammo_cell = _innermost_ammo(field, geometry.ammo_cells)
+    if ammo_cell is None:
+        return None
+    return geometry, ammo_cell
 
 
 def _launcher_geometry(r: int, c: int) -> Optional[_ShotGeometry]:

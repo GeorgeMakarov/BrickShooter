@@ -10,7 +10,7 @@ from domain.constants import (
     PLAY_AREA_END,
 )
 from domain.events import BrickShot
-from domain.rules.shot import shoot
+from domain.rules.shot import can_shoot, shoot
 
 
 def empty_field() -> list[list[Brick]]:
@@ -136,3 +136,29 @@ class TestShotPreconditions:
         place(field, row, PLAY_AREA_END - 1, color=1)  # obstacle only
 
         assert shoot(field, (row, PLAY_AREA_START - 1)) == []
+
+
+class TestCanShoot:
+    """can_shoot mirrors shoot's preconditions without mutating the field.
+    Used by the game-over detector to ask 'is there any valid shot anywhere?'"""
+
+    def test_returns_true_for_valid_shot(self):
+        field = empty_field()
+        row = PLAY_AREA_START + 2
+        setup_left_shot(field, row)
+
+        assert can_shoot(field, (row, PLAY_AREA_START - 1)) is True
+        # Field unchanged.
+        for c in range(LAUNCH_ZONE_DEPTH):
+            assert field[row][c].intention == CellIntention.STAND
+
+    def test_returns_false_when_target_edge_occupied(self):
+        field = empty_field()
+        row = PLAY_AREA_START + 2
+        for c in range(LAUNCH_ZONE_DEPTH):
+            place(field, row, c, color=0)
+        place(field, row, PLAY_AREA_START, color=9)
+        assert can_shoot(field, (row, PLAY_AREA_START - 1)) is False
+
+    def test_returns_false_for_non_launcher_click(self):
+        assert can_shoot(empty_field(), (0, 0)) is False

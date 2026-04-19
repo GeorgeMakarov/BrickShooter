@@ -165,7 +165,7 @@ Target: `v2/domain/` with zero framework imports, emitting `DomainEvent` streams
 | 5b | Crosser rule → `BrickCrossed` events | done | `6fed217` |
 | 5c | Refill rule → `BrickMoved` + `LaunchZoneRefilled` | done | `d1ccadb` |
 | 6 | `HistoryStack` → `StateReverted` on revert | done | `4374e5f` |
-| 7 | `Game` facade owning field+score+history, exposing `GameInputPort`, orchestrating rules | pending |  |
+| 7 | Ports (`GameInputPort`/`GamePresenterPort`) + `can_shoot` + `Game` facade orchestrating resolution cycle, score, game-over | done | *this commit* |
 | 8 | Rewire `v1/controller.py` to consume events via a fake `GamePresenterPort`; play a live Kivy round to confirm parity | pending |  |
 
 Exit criterion: `pytest v2/tests/` green; v1 Kivy game plays identically against the new domain.
