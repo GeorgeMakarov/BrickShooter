@@ -153,20 +153,22 @@ GitHub Actions: pytest on `v2/`, `vitest` on `v2/frontend/`, Playwright on a loc
 
 ### Phase 1 — Extract the pure Python domain *(in progress)*
 
-Target: `v2/domain/` with zero framework imports, emitting `DomainEvent` streams.
+Target: `v2/domain/` with zero framework imports, emitting `DomainEvent` streams. Each rule is a pure function (or small class) that mutates a `field` in place and returns `list[DomainEvent]`. Randomness is injected (see `refill.pick_color`) to keep tests deterministic. 80 pytest cases currently green.
 
-Test-first sub-tasks:
+| # | Sub-task | Status | Commit |
+|---|---|---|---|
+| 1 | `DomainEvent` types (frozen dataclasses, tagged union) | done | `bdda080` |
+| 2 | Move `Brick`, `CellIntention`, constants to `v2/domain/` | done | `dd55ca6` |
+| 3 | Matching rule → `BrickMatched` events | done | `8fe4dbe` |
+| 4 | Movement rule → `BrickMoved` events | done | `1ba40fe` |
+| 5a | Shot rule → `BrickShot` event | done | `1b0a95d` |
+| 5b | Crosser rule → `BrickCrossed` events | done | `6fed217` |
+| 5c | Refill rule → `BrickMoved` + `LaunchZoneRefilled` | done | `d1ccadb` |
+| 6 | `HistoryStack` → `StateReverted` on revert | done | `4374e5f` |
+| 7 | `Game` facade owning field+score+history, exposing `GameInputPort`, orchestrating rules | pending |  |
+| 8 | Rewire `v1/controller.py` to consume events via a fake `GamePresenterPort`; play a live Kivy round to confirm parity | pending |  |
 
-1. **`DomainEvent` types**. *Done* — `bdda080`.
-2. **Move `Brick`, `CellIntention`, constants**. Mechanical move + same assertions under `v2/tests/`.
-3. **Matching → events**. `find_and_remove_groups` returns a list of `BrickMatched` (and `ScoreChanged`) in addition to the removed-cells tuple.
-4. **Movement → events**. `movement_resolution_step` returns `list[BrickMoved]`.
-5. **Shot / crosser / refill → events**. One event type per rule module.
-6. **History → events**. `revert_to_previous_state` emits `StateReverted`.
-7. **Game facade**. `Game` class owns field+score+history; exposes `GameInputPort`; yields event streams from each use case.
-8. **Rewire `v1/controller.py`** to consume events via a fake `GamePresenterPort` in tests; play a live Kivy round to confirm parity.
-
-Exit criterion: `pytest v2/tests/` green; v1 Kivy game plays identically.
+Exit criterion: `pytest v2/tests/` green; v1 Kivy game plays identically against the new domain.
 
 ### Phase 2 — Backend adapter (FastAPI + WS)
 
