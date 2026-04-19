@@ -68,6 +68,11 @@ class Game:
         self.field: Field = _empty_field()
         self.score: int = 0
         self.history = HistoryStack()
+        # Chain depth within the current resolution cycle — reset on every
+        # successful shoot(). The first match batch scores ×1, the second ×2,
+        # the third ×3, and so on; refill-induced chain reactions reward the
+        # player proportionally.
+        self._chain_depth: int = 0
 
     @property
     def num_obstacles(self) -> int:
@@ -95,6 +100,8 @@ class Game:
             self.history.revert()
             return []
 
+        # New shot = new chain. Reset the multiplier before running the cycle.
+        self._chain_depth = 0
         events: list[DomainEvent] = list(shot_events)
         events.extend(self._resolve())
         events.extend(self._check_level_or_game_over())
@@ -116,9 +123,14 @@ class Game:
             moved = self._drain_movement()
             events.extend(moved)
 
-            matches, delta = find_and_remove_groups(self.field)
+            matches, base_delta = find_and_remove_groups(self.field)
             if matches:
                 events.extend(matches)
+                # Apply the chain multiplier: first match batch ×1,
+                # second ×2, third ×3, … The client's "Combo xN" popup
+                # maps one-to-one to this multiplier.
+                self._chain_depth += 1
+                delta = base_delta * self._chain_depth
                 self.score += delta
                 events.append(ScoreChanged(delta=delta, total=self.score))
                 continue  # matches may unblock more movement

@@ -217,7 +217,7 @@ Exit criterion met: `python -m backend --port 8765` serves a WS at `ws://127.0.0
 
 Exit criterion met: `python -m backend --port 8000` + `npm run dev` in `v2/frontend/` → browser loads the game, shots animate, matches burst, undo reverts, new-game resets. 32 vitest cases + 151 pytest cases green.
 
-### Phase 4 — Packaging and deploy *(done; live at http://your-server.example.com:8000/)*
+### Phase 4 — Packaging and deploy *(done)*
 
 Actual deployment recorded in `docs/DEPLOYMENT.md`. The recipe below is the
 general template; the live server ran a slightly-adjusted version (Python 3.11

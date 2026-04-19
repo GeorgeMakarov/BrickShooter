@@ -158,6 +158,55 @@ class TestShootValid:
         assert any(isinstance(e, LaunchZoneRefilled) for e in events)
 
 
+class TestChainBonus:
+    def _seed_triplet(self, g: Game, row_offset: int = 2) -> None:
+        row = PLAY_AREA_START + row_offset
+        for dc in range(3):
+            place(g, row, PLAY_AREA_START + dc, color=5)
+
+    def test_first_match_in_cycle_scores_x1(self):
+        g = Game(pick_color=lambda: 5, num_obstacles=0)
+        g.new_game()
+        self._seed_triplet(g)
+
+        events = g._resolve()  # type: ignore[attr-defined]
+        score_events = [e for e in events if isinstance(e, ScoreChanged)]
+
+        assert len(score_events) == 1
+        assert score_events[0].delta == 30  # group of 3 at multiplier x1
+
+    def test_second_match_scores_x2(self):
+        """Drive two resolution passes without an intervening shot() call —
+        the second pass inherits the chain depth, so its delta doubles."""
+        g = Game(pick_color=lambda: 5, num_obstacles=0)
+        g.new_game()
+        # First match: advance chain_depth to 1.
+        self._seed_triplet(g, row_offset=2)
+        first = g._resolve()  # type: ignore[attr-defined]
+        first_score = next(e for e in first if isinstance(e, ScoreChanged))
+        assert first_score.delta == 30
+
+        # Second match: chain_depth goes 1 -> 2, delta doubles.
+        self._seed_triplet(g, row_offset=4)
+        second = g._resolve()  # type: ignore[attr-defined]
+        second_score = next(e for e in second if isinstance(e, ScoreChanged))
+        assert second_score.delta == 60  # 30 * 2
+
+    def test_shoot_resets_chain_depth(self):
+        g = Game(pick_color=lambda: 5, num_obstacles=0)
+        g.new_game()
+        # Pretend a previous cycle left a stale chain counter.
+        g._chain_depth = 99
+        row = PLAY_AREA_START + 2
+        place(g, row, PLAY_AREA_END - 1, color=9)  # obstacle so shot fires
+
+        g.shoot((row, PLAY_AREA_START - 1))
+
+        # Chain depth reflects match batches produced this shot only —
+        # 0 (no match) or 1 (one batch). Certainly not 100+.
+        assert g._chain_depth <= 1
+
+
 class TestShootWithMatch:
     def test_match_produces_brick_matched_and_score_changed(self):
         """Arrange two bricks of colour 7 in a row; the shot brick also colour 7

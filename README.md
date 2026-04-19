@@ -2,8 +2,6 @@
 
 A colour-match puzzle — launch bricks from the edges into a 10×10 play area, line up three or more of a colour, clear the board, advance. Originally a 1990s Delphi game; this repo holds two Python/web reimplementations of the same rules.
 
-**Play it: [http://your-server.example.com:8000/](http://your-server.example.com:8000/)**
-
 ---
 
 ## Repository layout
@@ -26,7 +24,7 @@ deploy/          # systemd unit, config.env example, VDS deploy README
 
 ## Playing
 
-- Open the URL on any modern browser. First visit asks for a display name (stored locally).
+- Open the deployed URL on any modern browser. First visit asks for a display name (stored locally).
 - Pick a difficulty in the bottom-right corner — Easy (5 colours), Normal (7), Hard (9).
 - Click an edge cell adjacent to the 10×10 play area to fire the innermost brick in that launcher into the field.
 - The shot brick travels in its launched direction until it hits another brick. Groups of 3+ same colour clear.
