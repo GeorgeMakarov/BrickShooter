@@ -5,6 +5,8 @@
 /v2/.venv
 /v2/.pytest_cache
 /deploy/config.env.vds
+# Private operator notes — keep IP/key/host-specific details out of the repo.
+**/*.private.md
 /v2/frontend/node_modules
 /v2/frontend/dist
 **/__pycache__

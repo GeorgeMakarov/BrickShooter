@@ -116,10 +116,10 @@ Update cycle is:
 
 ```bash
 cd v2/frontend && npm run build
-pscp -i ~/.ssh/your-key.ppk -r v2/backend       root@<YOUR-SERVER>:/opt/brickshooter/
-pscp -i ~/.ssh/your-key.ppk -r v2/domain        root@<YOUR-SERVER>:/opt/brickshooter/
-pscp -i ~/.ssh/your-key.ppk -r v2/frontend/dist/* root@<YOUR-SERVER>:/opt/brickshooter/frontend/
-ssh root@<YOUR-SERVER> systemctl restart brickshooter
+rsync -a v2/backend       <user>@<your-server>:/opt/brickshooter/
+rsync -a v2/domain        <user>@<your-server>:/opt/brickshooter/
+rsync -a v2/frontend/dist/ <user>@<your-server>:/opt/brickshooter/frontend/
+ssh <user>@<your-server> systemctl restart brickshooter
 ```
 
 Server has no nginx, no TLS, one systemd unit running uvicorn as an unprivileged user under `ProtectSystem=strict` with a 256 MiB memory cap.

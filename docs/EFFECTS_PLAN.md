@@ -82,7 +82,7 @@ After each phase:
 
 ```
 cd v2/frontend && npm run build
-pscp -i ~/.ssh/your-key.ppk -r v2/frontend/dist/* root@<YOUR-SERVER>:/opt/brickshooter/frontend/
+rsync -a v2/frontend/dist/ <user>@<your-server>:/opt/brickshooter/frontend/
 ```
 
 No backend changes in phases 1–4 (events already carry everything needed).
