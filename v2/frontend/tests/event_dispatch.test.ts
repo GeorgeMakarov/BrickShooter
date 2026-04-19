@@ -19,6 +19,7 @@ class RecordingEffects implements SceneEffects {
   }
 
   flashLauncher(cell: [number, number]): void { this.record("flashLauncher", cell); }
+  activateBrick(cell: [number, number], direction: string): void { this.record("activateBrick", cell, direction); }
   moveBrick(from: [number, number], to: [number, number]): void { this.record("moveBrick", from, to); }
   matchCells(cells: [number, number][], color: number): void { this.record("matchCells", cells, color); }
   crossBrick(from: [number, number], to: [number, number], color: number): void { this.record("crossBrick", from, to, color); }
@@ -35,10 +36,11 @@ function dispatch(event: DomainEvent) {
 }
 
 describe("dispatchEvent", () => {
-  it("BrickShot -> flashLauncher at launcher_cell", () => {
+  it("BrickShot -> flashLauncher + activateBrick(ammo_cell, direction)", () => {
     const fx = dispatch({ type: "BrickShot", launcher_cell: [3, 2], ammo_cell: [3, 2], direction: "TO_RIGHT" });
-    expect(fx.calls).toEqual(["flashLauncher"]);
+    expect(fx.calls).toEqual(["flashLauncher", "activateBrick"]);
     expect(fx.args.flashLauncher).toEqual([[3, 2]]);
+    expect(fx.args.activateBrick).toEqual([[3, 2], "TO_RIGHT"]);
   });
 
   it("BrickMoved -> moveBrick(from, to)", () => {

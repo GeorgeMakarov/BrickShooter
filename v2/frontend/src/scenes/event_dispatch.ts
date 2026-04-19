@@ -13,6 +13,8 @@ import type { Cell, DomainEvent } from "../transport/events";
 
 export interface SceneEffects {
   flashLauncher(cell: Cell): void;
+  /** Update a brick's intention (texture, etc.) when a shot activates it. */
+  activateBrick(cell: Cell, direction: string): void;
   moveBrick(from: Cell, to: Cell): void;
   matchCells(cells: Cell[], colorIndex: number): void;
   crossBrick(from: Cell, to: Cell, colorIndex: number): void;
@@ -26,6 +28,7 @@ export function dispatchEvent(event: DomainEvent, effects: SceneEffects): void {
   switch (event.type) {
     case "BrickShot":
       effects.flashLauncher(event.launcher_cell);
+      effects.activateBrick(event.ammo_cell, event.direction);
       return;
     case "BrickMoved":
       effects.moveBrick(event.from_cell, event.to_cell);
