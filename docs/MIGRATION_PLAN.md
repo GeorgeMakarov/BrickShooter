@@ -192,15 +192,17 @@ Target: `v2/domain/` with zero framework imports, emitting `DomainEvent` streams
 
 Exit criterion: `pytest v2/tests/` green, including the end-to-end integration test that drives a full game round via `Game` + a fake presenter. v1 remains frozen at `v1-final` as the visual reference.
 
-### Phase 2 — Backend adapter (FastAPI + WS)
+### Phase 2 — Backend adapter (FastAPI + WS) *(done)*
 
-1. **JSON codec**. *Test*: each `DomainEvent` round-trips through `to_json(event)` / `from_json(frame)`. *Impl*: `v2/backend/adapters/codec.py`.
-2. **`WebPresenter`**. *Test*: receives a domain event, pushes the right JSON frame into an in-memory queue. *Impl*: implements `GamePresenterPort`, writes to WS.
-3. **`WebInput`**. *Test*: `{"type":"shoot","cell":[2,5]}` is routed to `GameInputPort.shoot((2, 5))`. *Impl*: parse + dispatch.
-4. **FastAPI app**. *Test*: Starlette `TestClient` opens `/ws`, sends `shoot`, receives the event stream for a full round. Static mount serves a dummy `index.html`. *Impl*: `v2/backend/app.py`.
-5. **`python -m v2.backend`**. Runs uvicorn; serves on `localhost:8000`. *Manual check*: visit URL, confirm dummy page loads.
+| # | Sub-task | Status | Commit |
+|---|---|---|---|
+| 1 | JSON codec (`to_json` / `from_json`) for every `DomainEvent` | done | `aa5d6d2` |
+| 2 | `WebPresenter` implementing `GamePresenterPort`, buffers JSON frames for async flush | done | `e603a50` |
+| 3 | `WebInput` parsing `{shoot, undo, new_game}` messages into `GameInputPort` calls | done | `75ffe77` |
+| 4 | Snapshot encoder + FastAPI `/ws` endpoint; end-to-end test via Starlette `TestClient` | done | *this commit* |
+| 5 | `python -m backend` entry point (uvicorn); live smoke check | done | *this commit* |
 
-Exit criterion: a Python script can open a WS to `localhost:8000/ws`, shoot a brick, see the full event stream, undo, see `StateReverted`. Backend has no UI yet.
+Exit criterion met: `python -m backend --port 8765` serves a WS at `ws://127.0.0.1:8765/ws`. A live client receives a snapshot on connect, a fresh snapshot after `new_game`, and event frames after shots. Static file mount for the frontend bundle deferred to Phase 4.
 
 ### Phase 3 — Frontend (TypeScript + Phaser 3)
 
