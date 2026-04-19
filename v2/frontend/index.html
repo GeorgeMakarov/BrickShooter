@@ -113,6 +113,23 @@
         background: #1a2640;
         border-color: #3a5485;
       }
+      .mute-btn {
+        background: transparent;
+        border: 1px solid transparent;
+        color: #e8eef7;
+        font-size: 16px;
+        line-height: 1;
+        padding: 2px 6px;
+        width: auto;
+        cursor: pointer;
+      }
+      .mute-btn:hover {
+        background: #1a2640;
+        border-color: #3a5485;
+      }
+      .mute-btn.muted {
+        opacity: 0.55;
+      }
       .name-btn small {
         display: block;
         font-size: 11px;
@@ -219,6 +236,7 @@
           <small>Player</small>
           <span id="player-name">—</span>
         </button>
+        <button id="mute-btn" class="mute-btn" title="Toggle sound">🔊</button>
       </div>
 
       <div class="corner corner-tr">

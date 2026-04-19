@@ -5,6 +5,7 @@
 
 import * as Phaser from "phaser";
 
+import { Sfx } from "./audio/sfx";
 import { GridScene } from "./scenes/GridScene";
 import { GameSocket } from "./transport/ws_client";
 import {
@@ -36,6 +37,7 @@ const undoBtn = document.getElementById("undo") as HTMLButtonElement;
 const scoresBtn = document.getElementById("scores") as HTMLButtonElement;
 const nameBtn = document.getElementById("name-btn") as HTMLButtonElement;
 const playerNameEl = document.getElementById("player-name") as HTMLSpanElement;
+const muteBtn = document.getElementById("mute-btn") as HTMLButtonElement;
 const difficultyEl = document.getElementById("difficulty") as HTMLSelectElement;
 
 // --- state ---------------------------------------------------------------
@@ -45,6 +47,17 @@ let currentLevel = 1;
 let hasProgress = false;
 let difficulty: Difficulty = (localStorage.getItem(DIFFICULTY_KEY) as Difficulty | null) ?? "normal";
 difficultyEl.value = difficulty;
+
+const sfx = new Sfx();
+function updateMuteButton(): void {
+  muteBtn.textContent = sfx.isMuted ? "🔇" : "🔊";
+  muteBtn.classList.toggle("muted", sfx.isMuted);
+}
+updateMuteButton();
+muteBtn.addEventListener("click", () => {
+  sfx.toggleMuted();
+  updateMuteButton();
+});
 
 /** Pending { resolve } callback awaiting the server's scores reply. */
 let pendingScoresResolver: ((entries: ScoreEntry[]) => void) | null = null;
@@ -326,7 +339,7 @@ new Phaser.Game({
   scale: { mode: Phaser.Scale.NONE },
   callbacks: {
     preBoot: (game) => {
-      game.scene.start("GridScene", { socket, onScore, onLevel, onLevelCleared, onGameOver });
+      game.scene.start("GridScene", { socket, sfx, onScore, onLevel, onLevelCleared, onGameOver });
     },
   },
 });

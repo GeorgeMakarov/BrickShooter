@@ -15,6 +15,7 @@
 
 import * as Phaser from "phaser";
 
+import type { Sfx } from "../audio/sfx";
 import type { Cell, Snapshot } from "../transport/events";
 import type { GameSocket } from "../transport/ws_client";
 import { BRICK_COLORS, colorFor } from "./colors";
@@ -33,6 +34,7 @@ const PLAY_BORDER = 0xffffff;
 
 export interface GridSceneDeps {
   socket: GameSocket;
+  sfx: Sfx;
   onScore: (total: number) => void;
   /** Silent updates of the current level — fires on every snapshot. */
   onLevel: (level: number) => void;
@@ -50,6 +52,7 @@ interface BrickSprite {
 export class GridScene extends Phaser.Scene implements SpriteLayer, SceneEffects {
   private sprites = new Map<string, BrickSprite>();
   private socket!: GameSocket;
+  private sfx!: Sfx;
   private onScore!: (total: number) => void;
   private onLevel!: (level: number) => void;
   private onLevelCleared!: (level: number) => void;
@@ -68,6 +71,7 @@ export class GridScene extends Phaser.Scene implements SpriteLayer, SceneEffects
 
   init(data: GridSceneDeps): void {
     this.socket = data.socket;
+    this.sfx = data.sfx;
     this.onScore = data.onScore;
     this.onLevel = data.onLevel;
     this.onLevelCleared = data.onLevelCleared;
@@ -125,6 +129,7 @@ export class GridScene extends Phaser.Scene implements SpriteLayer, SceneEffects
     // BrickShot is the "user action" boundary — reset chain state.
     this.chainDepth = 0;
     this.pendingMatchCentroids.length = 0;
+    this.sfx.playShot();
 
     const [r, c] = cell;
     const cx = c * CELL_SIZE + CELL_SIZE / 2;
@@ -257,6 +262,7 @@ export class GridScene extends Phaser.Scene implements SpriteLayer, SceneEffects
       this.emitMatchBurst(centerX, centerY, colour);
     }
     this.pendingMatchCentroids.push({ x: sumX / cells.length, y: sumY / cells.length });
+    this.sfx.playMatch(cells.length);
 
     // Shake the camera when a big group lands, scaled to group size. Clamped
     // so a huge match doesn't make the game unplayable.
@@ -369,6 +375,7 @@ export class GridScene extends Phaser.Scene implements SpriteLayer, SceneEffects
   showLevelCleared(level: number): void {
     this.onLevel(level + 1); // the server has already advanced — keep UI in sync
     this.onLevelCleared(level);
+    this.sfx.playLevelUp();
 
     const cx = (FIELD_SIZE * CELL_SIZE) / 2;
     const cy = (FIELD_SIZE * CELL_SIZE) / 2;
