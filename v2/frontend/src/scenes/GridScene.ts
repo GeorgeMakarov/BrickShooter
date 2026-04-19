@@ -125,7 +125,11 @@ export class GridScene extends Phaser.Scene implements SpriteLayer, SceneEffects
     // it — otherwise we leak a stale sprite under the arriving one.
     this.destroySpriteAt(to);
     this.sprites.set(cellKey(to), sprite);
-    // Intention is unchanged — texture stays whatever the sprite already had.
+    // Intention is unchanged, but refresh the texture from the tracked
+    // intention — covers the case where a previous cross left the sprite with
+    // a stale directional texture because its onComplete was cancelled by a
+    // later move. The texture always matches the server-authoritative state.
+    sprite.image.setTexture(brickTextureKey(sprite.intention, sprite.colorIndex));
     this.tweens.add({
       targets: sprite.image,
       x: to[1] * CELL_SIZE + CELL_SIZE / 2,
@@ -163,19 +167,18 @@ export class GridScene extends Phaser.Scene implements SpriteLayer, SceneEffects
     // edge cases (e.g. resync drift) by destroying whatever's there.
     this.destroySpriteAt(to);
     this.sprites.set(cellKey(to), sprite);
-    // Crossers land STAND on the far launcher — mirror the server rule.
+    // Crossers land STAND on the far launcher — set both intention and
+    // texture immediately. Doing the texture in onComplete was fragile: a
+    // later move in the same burst would whisk the sprite away and the
+    // onComplete guard would skip the update, leaving a stale arrow forever.
     sprite.intention = "STAND";
+    sprite.image.setTexture(brickTextureKey("STAND", sprite.colorIndex));
     this.tweens.add({
       targets: sprite.image,
       x: to[1] * CELL_SIZE + CELL_SIZE / 2,
       y: to[0] * CELL_SIZE + CELL_SIZE / 2,
       duration: MOVE_DURATION_MS,
       ease: "Linear",
-      onComplete: () => {
-        if (this.sprites.get(cellKey(to)) === sprite) {
-          sprite.image.setTexture(brickTextureKey("STAND", sprite.colorIndex));
-        }
-      },
     });
   }
 
