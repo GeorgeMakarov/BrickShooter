@@ -217,7 +217,12 @@ Exit criterion met: `python -m backend --port 8765` serves a WS at `ws://127.0.0
 
 Exit criterion met: `python -m backend --port 8000` + `npm run dev` in `v2/frontend/` → browser loads the game, shots animate, matches burst, undo reverts, new-game resets. 32 vitest cases + 151 pytest cases green.
 
-### Phase 4 — Packaging and deploy
+### Phase 4 — Packaging and deploy *(done; live at http://your-server.example.com:8000/)*
+
+Actual deployment recorded in `docs/DEPLOYMENT.md`. The recipe below is the
+general template; the live server ran a slightly-adjusted version (Python 3.11
+instead of 3.10 — only what was already on the box) and needed no firewall
+changes because the host's iptables INPUT policy was already `ACCEPT`.
 
 #### Pre-deploy (features that only affect backend/frontend, no infra changes)
 
@@ -276,10 +281,10 @@ RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 1. Create user: `useradd -r -s /usr/sbin/nologin brickshooter`.
 2. `mkdir -p /opt/brickshooter /var/lib/brickshooter /etc/brickshooter`.
 3. `rsync -a v2/backend /opt/brickshooter/ && rsync -a v2/frontend/dist /opt/brickshooter/frontend/`.
-4. `python3.10 -m venv /opt/brickshooter/venv && /opt/brickshooter/venv/bin/pip install -r /opt/brickshooter/backend/requirements.txt` (or a trimmed runtime-only file).
+4. `python3 -m venv /opt/brickshooter/venv && /opt/brickshooter/venv/bin/pip install fastapi 'uvicorn[standard]' websockets` — 3.10+ is enough; 3.11 is what Debian 12 ships.
 5. Drop `deploy/brickshooter.service` at `/etc/systemd/system/` and `deploy/config.env.example` at `/etc/brickshooter/config.env`.
 6. `systemctl daemon-reload && systemctl enable --now brickshooter`.
-7. Firewall: `ufw allow ${PORT}/tcp` (or nftables equivalent). Keep all other ports closed except SSH.
+7. Firewall: if the host runs ufw/nftables with a default-deny INPUT policy, add a rule allowing `${PORT}/tcp`. If INPUT is `ACCEPT` by default (as on the live VDS), no change is needed — the service becomes reachable as soon as it binds.
 8. **Smoke test**: open the URL from another device, play a round, F5 and confirm state persists.
 
 #### Attack-surface analysis
