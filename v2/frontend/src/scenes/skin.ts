@@ -40,40 +40,35 @@ function drawBrick(
   baseColor: number,
   intention: string,
 ): void {
-  const bevel = Math.max(3, Math.round(size * 0.15)); //!< ~15% of cell = thick 3D rim
-  const highlight = shiftBrightness(baseColor, 1.45);
+  const bevel = 3;                                   //!< thin rim; keeps the face large
+  const highlight = shiftBrightness(baseColor, 1.4);
   const shadow = shiftBrightness(baseColor, 0.55);
-  const edge = shiftBrightness(baseColor, 0.35);
 
-  // Outer edge — a 1px hard darker ring so neighbouring bricks don't bleed.
-  g.fillStyle(edge, 1);
-  g.fillRect(0, 0, size, size);
-
-  // Top + left highlight.
+  // Top + left highlight (L-shape meeting at 45° in the inner corners).
   g.fillStyle(highlight, 1);
   fillPolygon(g, [
-    [1, 1],
-    [size - 1, 1],
-    [size - 1 - bevel, 1 + bevel],
-    [1 + bevel, 1 + bevel],
-    [1 + bevel, size - 1 - bevel],
-    [1, size - 1],
+    [0, 0],
+    [size, 0],
+    [size - bevel, bevel],
+    [bevel, bevel],
+    [bevel, size - bevel],
+    [0, size],
   ]);
 
   // Bottom + right shadow.
   g.fillStyle(shadow, 1);
   fillPolygon(g, [
-    [size - 1, 1],
-    [size - 1, size - 1],
-    [1, size - 1],
-    [1 + bevel, size - 1 - bevel],
-    [size - 1 - bevel, size - 1 - bevel],
-    [size - 1 - bevel, 1 + bevel],
+    [size, 0],
+    [size, size],
+    [0, size],
+    [bevel, size - bevel],
+    [size - bevel, size - bevel],
+    [size - bevel, bevel],
   ]);
 
   // Flat centre — the button face.
   g.fillStyle(baseColor, 1);
-  g.fillRect(1 + bevel, 1 + bevel, size - 2 - 2 * bevel, size - 2 - 2 * bevel);
+  g.fillRect(bevel, bevel, size - 2 * bevel, size - 2 * bevel);
 
   // Directional arrow embossed into the face.
   drawArrow(g, size, bevel, baseColor, intention);
