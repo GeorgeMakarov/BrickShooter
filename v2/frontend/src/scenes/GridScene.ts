@@ -2,7 +2,7 @@
  * Main Phaser scene.
  *
  * Owns:
- *   - the brick sprite grid (one Rectangle per non-VOID cell)
+ *   - the brick sprite grid (one Image per non-VOID cell, keyed by intention+colour)
  *   - the pointer input on launcher cells (click -> shoot message)
  *   - the transport wiring (snapshot -> repaint; event -> animate)
  *
@@ -18,11 +18,13 @@ import type { GameSocket } from "../transport/ws_client";
 import { colorFor } from "./colors";
 import { dispatchEvent, type SceneEffects } from "./event_dispatch";
 import { renderSnapshot, type PlaceArgs, type SpriteLayer } from "./grid_render";
+import { brickTextureKey, generateBrickTextures } from "./skin";
 
 const FIELD_SIZE = 16;
 const PLAY_AREA_START = 3;
 const PLAY_AREA_END = 13;
 const CELL_SIZE = 32;
+const BRICK_SIZE = 30; //!< texture dimension; leaves a 1px gutter inside each cell
 const MOVE_DURATION_MS = 80;
 const BOARD_BG = 0x0f1b2d;
 const PLAY_BORDER = 0xffffff;
@@ -33,14 +35,8 @@ export interface GridSceneDeps {
   onGameOver: (reason: string, won: boolean) => void;
 }
 
-interface BrickSprite {
-  root: Phaser.GameObjects.Container;
-  body: Phaser.GameObjects.Rectangle;
-  arrow: Phaser.GameObjects.Triangle | null;
-}
-
 export class GridScene extends Phaser.Scene implements SpriteLayer, SceneEffects {
-  private sprites = new Map<string, BrickSprite>();
+  private sprites = new Map<string, Phaser.GameObjects.Image>();
   private socket!: GameSocket;
   private onScore!: (total: number) => void;
   private onGameOver!: (reason: string, won: boolean) => void;
@@ -56,22 +52,24 @@ export class GridScene extends Phaser.Scene implements SpriteLayer, SceneEffects
   }
 
   create(): void {
+    // Procedural skin — one texture per (intention, colour), generated once.
+    generateBrickTextures(this, BRICK_SIZE);
+
     // Background.
     this.cameras.main.setBackgroundColor(BOARD_BG);
 
-    // Thin grid lines inside the play zone only — launcher strips and the
-    // unused corner 3x3 blocks stay unlined.
+    // Thin grid lines inside the play zone only.
     const grid = this.add.graphics();
     grid.lineStyle(1, 0xffffff, 0.1);
     const playMin = PLAY_AREA_START * CELL_SIZE;
     const playMax = PLAY_AREA_END * CELL_SIZE;
     for (let i = PLAY_AREA_START + 1; i < PLAY_AREA_END; i++) {
       const p = i * CELL_SIZE;
-      grid.lineBetween(playMin, p, playMax, p);   // horizontal
-      grid.lineBetween(p, playMin, p, playMax);   // vertical
+      grid.lineBetween(playMin, p, playMax, p);
+      grid.lineBetween(p, playMin, p, playMax);
     }
 
-    // Play-area outline (10x10 inner square) — thicker, on top of the grid.
+    // Play-area outline (10x10 inner square).
     const outline = this.add.graphics();
     outline.lineStyle(2, PLAY_BORDER, 0.8);
     outline.strokeRect(
@@ -99,24 +97,17 @@ export class GridScene extends Phaser.Scene implements SpriteLayer, SceneEffects
   // --- SpriteLayer ---------------------------------------------------
 
   clear(): void {
-    for (const s of this.sprites.values()) s.root.destroy();
+    for (const s of this.sprites.values()) s.destroy();
     this.sprites.clear();
   }
 
   place(args: PlaceArgs): void {
-    const root = this.add.container(args.x + CELL_SIZE / 2, args.y + CELL_SIZE / 2);
-    const body = this.add.rectangle(0, 0, CELL_SIZE - 2, CELL_SIZE - 2, colorFor(args.colorIndex));
-    body.setStrokeStyle(1, 0xffffff, 0.25);
-    root.add(body);
-
-    // Intention arrow: only drawn for bricks that are currently directional.
-    // Bricks in launchers arrive as STAND; bricks in flight show an arrow
-    // while a BrickMoved tween is active (added in moveBrick, removed on
-    // tween complete).
-    const arrow = makeArrow(this, args.intention);
-    if (arrow !== null) root.add(arrow);
-
-    this.sprites.set(args.id, { root, body, arrow });
+    const sprite = this.add.image(
+      args.x + CELL_SIZE / 2,
+      args.y + CELL_SIZE / 2,
+      brickTextureKey(args.intention, args.colorIndex),
+    );
+    this.sprites.set(args.id, sprite);
   }
 
   // --- SceneEffects --------------------------------------------------
@@ -145,15 +136,23 @@ export class GridScene extends Phaser.Scene implements SpriteLayer, SceneEffects
     this.sprites.delete(cellKey(from));
     this.sprites.set(cellKey(to), sprite);
 
-    // Attach/refresh the direction arrow for the duration of the tween.
-    this.attachArrow(sprite, intentionFor(from, to));
+    // Swap to the directional texture for the duration of the move, then
+    // restore the STAND texture when the brick lands.
+    const intention = intentionFor(from, to);
+    const colorIndex = colorIndexFromTexture(sprite.texture.key);
+    sprite.setTexture(brickTextureKey(intention, colorIndex));
 
     this.tweens.add({
-      targets: sprite.root,
+      targets: sprite,
       x: to[1] * CELL_SIZE + CELL_SIZE / 2,
       y: to[0] * CELL_SIZE + CELL_SIZE / 2,
       duration: MOVE_DURATION_MS,
       ease: "Linear",
+      onComplete: () => {
+        if (this.sprites.get(cellKey(to)) === sprite) {
+          sprite.setTexture(brickTextureKey("STAND", colorIndex));
+        }
+      },
     });
   }
 
@@ -163,16 +162,15 @@ export class GridScene extends Phaser.Scene implements SpriteLayer, SceneEffects
       const sprite = this.sprites.get(cellKey(cell));
       if (!sprite) continue;
       this.sprites.delete(cellKey(cell));
-      // Particle burst at the sprite's world position.
-      const centerX = sprite.root.x;
-      const centerY = sprite.root.y;
+      const centerX = sprite.x;
+      const centerY = sprite.y;
       this.tweens.add({
-        targets: sprite.root,
+        targets: sprite,
         scale: 0,
         alpha: 0,
         duration: 220,
         ease: "Cubic.easeIn",
-        onComplete: () => sprite.root.destroy(),
+        onComplete: () => sprite.destroy(),
       });
       for (let i = 0; i < 6; i++) {
         const angle = (Math.PI * 2 * i) / 6;
@@ -191,20 +189,20 @@ export class GridScene extends Phaser.Scene implements SpriteLayer, SceneEffects
   }
 
   crossBrick(from: Cell, to: Cell, _colorIndex: number): void {
-    // Visually identical to moveBrick; the colour_index parameter matters
-    // when we reconcile the sprite if it's gone missing mid-animation.
+    // Visually identical to moveBrick (including the final STAND swap).
     this.moveBrick(from, to);
   }
 
   spawnBrick(cell: Cell, colorIndex: number): void {
     const [r, c] = cell;
-    const root = this.add.container(c * CELL_SIZE + CELL_SIZE / 2, r * CELL_SIZE + CELL_SIZE / 2);
-    const body = this.add.rectangle(0, 0, CELL_SIZE - 2, CELL_SIZE - 2, colorFor(colorIndex));
-    body.setStrokeStyle(1, 0xffffff, 0.25);
-    root.add(body);
-    root.setAlpha(0);
-    this.sprites.set(cellKey(cell), { root, body, arrow: null });
-    this.tweens.add({ targets: root, alpha: 1, duration: 200 });
+    const sprite = this.add.image(
+      c * CELL_SIZE + CELL_SIZE / 2,
+      r * CELL_SIZE + CELL_SIZE / 2,
+      brickTextureKey("STAND", colorIndex),
+    );
+    sprite.setAlpha(0);
+    this.sprites.set(cellKey(cell), sprite);
+    this.tweens.add({ targets: sprite, alpha: 1, duration: 200 });
   }
 
   updateScore(total: number, _delta: number): void {
@@ -224,27 +222,6 @@ export class GridScene extends Phaser.Scene implements SpriteLayer, SceneEffects
   private applySnapshot(snapshot: Snapshot): void {
     renderSnapshot(snapshot, this, CELL_SIZE);
     this.onScore(snapshot.score);
-  }
-
-  private attachArrow(sprite: BrickSprite, intention: string): void {
-    // Remove any prior arrow first — e.g. a chained move that changes direction
-    // (unlikely but cheap to guard against).
-    if (sprite.arrow !== null) {
-      sprite.arrow.destroy();
-      sprite.arrow = null;
-    }
-    const arrow = makeArrow(this, intention);
-    if (arrow === null) return;
-    sprite.root.add(arrow);
-    sprite.arrow = arrow;
-    // After the move tween, the brick has "arrived" — drop the arrow so
-    // stationary bricks read as STAND again.
-    this.time.delayedCall(MOVE_DURATION_MS, () => {
-      if (sprite.arrow === arrow) {
-        arrow.destroy();
-        sprite.arrow = null;
-      }
-    });
   }
 
   private isLauncherCell(r: number, c: number): boolean {
@@ -271,25 +248,9 @@ function intentionFor(from: Cell, to: Cell): string {
   return "TO_DOWN";
 }
 
-/**
- * A white-ish triangle overlay pointing in the direction of movement. Returned
- * unparented so the caller can add it to a container.
- */
-function makeArrow(scene: Phaser.Scene, intention: string): Phaser.GameObjects.Triangle | null {
-  const s = 7; //!< half-length in pixels
-  const fill = 0xffffff;
-  const alpha = 0.9;
-  switch (intention) {
-    case "TO_LEFT":
-      // apex on the left
-      return scene.add.triangle(0, 0, -s, 0, s, -s, s, s, fill, alpha);
-    case "TO_RIGHT":
-      return scene.add.triangle(0, 0, -s, -s, -s, s, s, 0, fill, alpha);
-    case "TO_UP":
-      return scene.add.triangle(0, 0, 0, -s, -s, s, s, s, fill, alpha);
-    case "TO_DOWN":
-      return scene.add.triangle(0, 0, -s, -s, s, -s, 0, s, fill, alpha);
-    default:
-      return null; // STAND / VOID — no overlay
-  }
+function colorIndexFromTexture(textureKey: string): number {
+  // Keys look like "brick-STAND-7" / "brick-TO_LEFT-3".
+  const parts = textureKey.split("-");
+  const idx = Number(parts[parts.length - 1]);
+  return Number.isFinite(idx) ? idx : 0;
 }
