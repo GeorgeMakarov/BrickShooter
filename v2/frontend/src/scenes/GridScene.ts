@@ -17,7 +17,7 @@ import * as Phaser from "phaser";
 
 import type { Cell, Snapshot } from "../transport/events";
 import type { GameSocket } from "../transport/ws_client";
-import { colorFor } from "./colors";
+import { BRICK_COLORS, colorFor } from "./colors";
 import { dispatchEvent, type SceneEffects } from "./event_dispatch";
 import { renderSnapshot, type PlaceArgs, type SpriteLayer } from "./grid_render";
 import { brickTextureKey, generateBrickTextures } from "./skin";
@@ -27,7 +27,7 @@ const PLAY_AREA_START = 3;
 const PLAY_AREA_END = 13;
 const CELL_SIZE = 32;
 const BRICK_SIZE = 30;
-const MOVE_DURATION_MS = 80;
+const MOVE_DURATION_MS = 120;
 const BOARD_BG = 0x0f1b2d;
 const PLAY_BORDER = 0xffffff;
 
@@ -73,6 +73,7 @@ export class GridScene extends Phaser.Scene implements SpriteLayer, SceneEffects
     this.cameras.main.setBackgroundColor(BOARD_BG);
     this.drawGridLines();
     this.drawPlayOutline();
+
     this.wireInput();
     this.socket.onSnapshot((s) => this.applySnapshot(s));
     this.socket.onEvent((e) => dispatchEvent(e, this));
@@ -165,31 +166,76 @@ export class GridScene extends Phaser.Scene implements SpriteLayer, SceneEffects
     // a stale directional texture because its onComplete was cancelled by a
     // later move. The texture always matches the server-authoritative state.
     sprite.image.setTexture(brickTextureKey(sprite.intention, sprite.colorIndex));
+
+    // Directional motion (an in-flight shot, not a launcher-queue shift):
+    // attach a Gaussian blur filter aligned with the travel axis to the
+    // sprite itself. Phaser 4's Components.Filters lives on every GameObject
+    // — enable once per sprite, then we can add/remove filters at will.
+    const blur = this.attachMotionBlur(sprite.image, sprite.intention);
+
     this.tweens.add({
       targets: sprite.image,
       x: to[1] * CELL_SIZE + CELL_SIZE / 2,
       y: to[0] * CELL_SIZE + CELL_SIZE / 2,
       duration: MOVE_DURATION_MS,
       ease: "Linear",
+      onComplete: () => {
+        if (blur !== null && sprite.image.active && sprite.image.filters) {
+          sprite.image.filters.external.remove(blur);
+        }
+      },
     });
+  }
+
+  /**
+   * Attach a directional Gaussian blur to an Image for the duration of a move.
+   * Returns the filter controller (or null for non-directional bricks) so the
+   * caller can remove it when the tween completes.
+   */
+  private attachMotionBlur(
+    image: Phaser.GameObjects.Image,
+    intention: string,
+  ): Phaser.Filters.Blur | null {
+    if (intention === "STAND" || intention === "VOID") return null;
+    if (!image.filters) image.enableFilters();
+    const horizontal = intention === "TO_LEFT" || intention === "TO_RIGHT";
+    const strength = 4;
+    return image.filters!.external.addBlur(
+      /* quality */ 1,
+      /* x */ horizontal ? strength : 0,
+      /* y */ horizontal ? 0 : strength,
+      /* strength */ 1,
+      /* colour */ 0xffffff,
+      /* steps */ 4,
+    );
   }
 
   matchCells(cells: Cell[], colorIndex: number): void {
     const colour = colorFor(colorIndex);
     for (const cell of cells) {
       const sprite = this.sprites.get(cellKey(cell));
-      if (!sprite) continue;
-      this.sprites.delete(cellKey(cell));
-      const centerX = sprite.image.x;
-      const centerY = sprite.image.y;
-      this.tweens.add({
-        targets: sprite.image,
-        scale: 0,
-        alpha: 0,
-        duration: 220,
-        ease: "Cubic.easeIn",
-        onComplete: () => sprite.image.destroy(),
-      });
+      // Burst at the cell's *logical* world centre, not the sprite's current
+      // tween-interpolated position — a just-arrived ammo brick may still be
+      // mid-move when the match fires, and reading sprite.image.x/y would put
+      // the burst somewhere along its flight path instead of at the match.
+      const centerX = cell[1] * CELL_SIZE + CELL_SIZE / 2;
+      const centerY = cell[0] * CELL_SIZE + CELL_SIZE / 2;
+      if (sprite) {
+        this.sprites.delete(cellKey(cell));
+        // Snap the sprite to the cell centre first, then shrink+fade it out,
+        // so its visual disappearance is co-located with the burst.
+        sprite.image.x = centerX;
+        sprite.image.y = centerY;
+        this.tweens.killTweensOf(sprite.image);
+        this.tweens.add({
+          targets: sprite.image,
+          scale: 0,
+          alpha: 0,
+          duration: 220,
+          ease: "Cubic.easeIn",
+          onComplete: () => sprite.image.destroy(),
+        });
+      }
       this.emitMatchBurst(centerX, centerY, colour);
     }
 
@@ -244,13 +290,18 @@ export class GridScene extends Phaser.Scene implements SpriteLayer, SceneEffects
   showLevelCleared(level: number): void {
     this.onLevel(level + 1); // the server has already advanced — keep UI in sync
     this.onLevelCleared(level);
-    // Brief on-canvas flash: a banner with "Level N Clear!" fading up and out.
-    const banner = this.add.text(
-      (FIELD_SIZE * CELL_SIZE) / 2,
-      (FIELD_SIZE * CELL_SIZE) / 2,
-      `Level ${level} Clear!`,
-      { fontSize: "32px", color: "#f1c40f", fontStyle: "bold" },
-    );
+
+    const cx = (FIELD_SIZE * CELL_SIZE) / 2;
+    const cy = (FIELD_SIZE * CELL_SIZE) / 2;
+
+    // Confetti first so the banner arrives in front of it.
+    this.emitConfetti(cx, cy);
+
+    const banner = this.add.text(cx, cy, `Level ${level} Clear!`, {
+      fontSize: "32px",
+      color: "#f1c40f",
+      fontStyle: "bold",
+    });
     banner.setOrigin(0.5);
     banner.setAlpha(0);
     banner.setScale(0.7);
@@ -320,6 +371,30 @@ export class GridScene extends Phaser.Scene implements SpriteLayer, SceneEffects
       if (!this.isLauncherCell(r, c)) return;
       this.socket.send({ type: "shoot", cell: [r, c] });
     });
+  }
+
+  /**
+   * Level-clear confetti: one emitter per palette colour so particles carry
+   * distinct tints (Phaser's tint is emitter-scoped, not per-particle).
+   * ~60 particles total, gravity-affected, 1.5-second fade.
+   */
+  private emitConfetti(x: number, y: number): void {
+    const lifespan = 1500;
+    for (const colour of BRICK_COLORS) {
+      const emitter = this.add.particles(x, y, "particle", {
+        speed: { min: 150, max: 360 },
+        angle: { min: 0, max: 360 },
+        scale: { start: 0.9, end: 0.1 },
+        alpha: { start: 1, end: 0 },
+        rotate: { min: 0, max: 360 },
+        lifespan: { min: lifespan * 0.6, max: lifespan },
+        quantity: 0,
+        tint: colour,
+        gravityY: 220,
+      });
+      emitter.explode(6);
+      this.time.delayedCall(lifespan + 100, () => emitter.destroy());
+    }
   }
 
   private emitMatchBurst(x: number, y: number, colour: number): void {
