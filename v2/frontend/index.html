@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BrickShooter</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: system-ui, sans-serif;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: #0a1322;
+        color: #e8eef7;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: flex-start;
+        padding: 16px;
+        gap: 12px;
+      }
+      header {
+        display: flex;
+        align-items: center;
+        gap: 20px;
+      }
+      h1 {
+        margin: 0;
+        font-size: 22px;
+        font-weight: 600;
+      }
+      .score {
+        font-size: 18px;
+        opacity: 0.85;
+      }
+      .score span {
+        font-weight: 600;
+        color: #f1c40f;
+      }
+      button {
+        background: #233859;
+        color: #e8eef7;
+        border: 1px solid #3a5485;
+        padding: 8px 14px;
+        border-radius: 6px;
+        font-size: 14px;
+        cursor: pointer;
+      }
+      button:hover {
+        background: #2f4a76;
+      }
+      #game {
+        border: 1px solid #2c3f5e;
+        border-radius: 8px;
+        overflow: hidden;
+      }
+      #overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.6);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 20px;
+      }
+      #overlay.hidden {
+        display: none;
+      }
+      #overlay-msg {
+        font-size: 24px;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>BrickShooter</h1>
+      <span class="score">Score: <span id="score">0</span></span>
+      <button id="new-game">New Game</button>
+      <button id="undo">Undo</button>
+    </header>
+    <div id="game"></div>
+    <div id="overlay" class="hidden">
+      <p id="overlay-msg"></p>
+      <button id="overlay-new-game">New Game</button>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

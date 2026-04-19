@@ -33,6 +33,11 @@ async def game_ws(ws: WebSocket) -> None:
             message = await ws.receive_json()
             msg_type = message.get("type") if isinstance(message, dict) else None
 
+            # Protocol-level request for a full state dump. Not a game input.
+            if msg_type == "snapshot":
+                await ws.send_json(encode_snapshot(game))
+                continue
+
             try:
                 events = router.handle_message(message)
             except ValueError as exc:
@@ -44,9 +49,11 @@ async def game_ws(ws: WebSocket) -> None:
             for frame in presenter.drain():
                 await ws.send_json(frame)
 
-            # new_game leaves the board in a fresh state; resend a snapshot
-            # so the client can repaint without having to rebuild from events.
-            if msg_type == "new_game":
+            # new_game resets state; undo restores an older state. In both
+            # cases the client needs a fresh snapshot to avoid drift — rebuilding
+            # from events alone is error-prone across these transitions.
+            reverted = any(type(e).__name__ == "StateReverted" for e in events)
+            if msg_type == "new_game" or reverted:
                 await ws.send_json(encode_snapshot(game))
 
     except WebSocketDisconnect:
