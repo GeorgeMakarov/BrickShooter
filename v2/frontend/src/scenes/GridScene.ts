@@ -69,12 +69,26 @@ export class GridScene extends Phaser.Scene implements SpriteLayer, SceneEffects
 
   create(): void {
     generateBrickTextures(this, BRICK_SIZE);
+    this.generateParticleTexture();
     this.cameras.main.setBackgroundColor(BOARD_BG);
     this.drawGridLines();
     this.drawPlayOutline();
     this.wireInput();
     this.socket.onSnapshot((s) => this.applySnapshot(s));
     this.socket.onEvent((e) => dispatchEvent(e, this));
+  }
+
+  /**
+   * 12x12 white disc — used as the base texture for all particle emitters.
+   * Tinted at emit-time so one texture serves every brick colour.
+   */
+  private generateParticleTexture(): void {
+    if (this.textures.exists("particle")) return;
+    const g = this.make.graphics({ x: 0, y: 0 }, false);
+    g.fillStyle(0xffffff, 1);
+    g.fillCircle(6, 6, 6);
+    g.generateTexture("particle", 12, 12);
+    g.destroy();
   }
 
   // --- SpriteLayer (snapshot repaint) --------------------------------
@@ -101,20 +115,33 @@ export class GridScene extends Phaser.Scene implements SpriteLayer, SceneEffects
 
   flashLauncher(cell: Cell): void {
     const [r, c] = cell;
-    const flash = this.add.rectangle(
-      c * CELL_SIZE + CELL_SIZE / 2,
-      r * CELL_SIZE + CELL_SIZE / 2,
-      CELL_SIZE,
-      CELL_SIZE,
-      0xffffff,
-      0.6,
-    );
+    const cx = c * CELL_SIZE + CELL_SIZE / 2;
+    const cy = r * CELL_SIZE + CELL_SIZE / 2;
+
+    // Radial glow: a circle that scales up from 0.4 to ~2.2 while fading out.
+    const glow = this.add.circle(cx, cy, CELL_SIZE / 2, 0xffffff, 0.5);
+    glow.setScale(0.4);
     this.tweens.add({
-      targets: flash,
+      targets: glow,
+      scale: 2.2,
       alpha: 0,
-      duration: 250,
-      onComplete: () => flash.destroy(),
+      duration: 300,
+      ease: "Cubic.easeOut",
+      onComplete: () => glow.destroy(),
     });
+
+    // A few sparkle particles shooting outward from the launcher cell.
+    const sparkle = this.add.particles(cx, cy, "particle", {
+      speed: { min: 60, max: 140 },
+      angle: { min: 0, max: 360 },
+      scale: { start: 0.6, end: 0 },
+      alpha: { start: 1, end: 0 },
+      lifespan: 300,
+      quantity: 0,
+      tint: 0xffffff,
+    });
+    sparkle.explode(6);
+    this.time.delayedCall(400, () => sparkle.destroy());
   }
 
   activateBrick(cell: Cell, direction: string): void {
@@ -163,7 +190,15 @@ export class GridScene extends Phaser.Scene implements SpriteLayer, SceneEffects
         ease: "Cubic.easeIn",
         onComplete: () => sprite.image.destroy(),
       });
-      this.emitParticles(centerX, centerY, colour);
+      this.emitMatchBurst(centerX, centerY, colour);
+    }
+
+    // Shake the camera when a big group lands, scaled to group size. Clamped
+    // so a huge match doesn't make the game unplayable.
+    if (cells.length >= 5) {
+      const intensity = Math.min(0.004 + 0.0015 * (cells.length - 4), 0.015);
+      const duration = Math.min(120 + 20 * (cells.length - 4), 260);
+      this.cameras.main.shake(duration, intensity);
     }
   }
 
@@ -287,20 +322,25 @@ export class GridScene extends Phaser.Scene implements SpriteLayer, SceneEffects
     });
   }
 
-  private emitParticles(x: number, y: number, colour: number): void {
-    for (let i = 0; i < 6; i++) {
-      const angle = (Math.PI * 2 * i) / 6;
-      const particle = this.add.rectangle(x, y, 6, 6, colour);
-      this.tweens.add({
-        targets: particle,
-        x: x + Math.cos(angle) * 30,
-        y: y + Math.sin(angle) * 30,
-        alpha: 0,
-        duration: 400,
-        ease: "Cubic.easeOut",
-        onComplete: () => particle.destroy(),
-      });
-    }
+  private emitMatchBurst(x: number, y: number, colour: number): void {
+    // 16 particles tinted to the brick colour, flying outward with a touch of
+    // gravity so they arc downward as they fade. Scale shrinks over lifespan
+    // and alpha fades — gives a "shatter + sparkle" read rather than the
+    // flat "six dots sliding apart" we had before.
+    const lifespan = 500;
+    const emitter = this.add.particles(x, y, "particle", {
+      speed: { min: 80, max: 220 },
+      angle: { min: 0, max: 360 },
+      scale: { start: 0.9, end: 0 },
+      alpha: { start: 1, end: 0 },
+      rotate: { min: 0, max: 360 },
+      lifespan,
+      quantity: 0,
+      tint: colour,
+      gravityY: 260,
+    });
+    emitter.explode(16);
+    this.time.delayedCall(lifespan + 100, () => emitter.destroy());
   }
 
   private isLauncherCell(r: number, c: number): boolean {
