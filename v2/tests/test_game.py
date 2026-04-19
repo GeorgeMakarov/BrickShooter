@@ -32,11 +32,13 @@ from domain.game import Game
 
 
 def empty_game(color_seq=None) -> Game:
-    """Game with a deterministic colour source."""
+    """Game with a deterministic colour source and no default obstacles, so
+    tests own the play-area contents. Tests that need v1's default obstacle
+    placement construct `Game(num_obstacles=2)` explicitly."""
     if color_seq is None:
         color_seq = itertools.cycle([0])
     it = iter(color_seq)
-    return Game(pick_color=lambda: next(it))
+    return Game(pick_color=lambda: next(it), num_obstacles=0)
 
 
 def place(g: Game, r: int, c: int, color: int = 0, intention: CellIntention = CellIntention.STAND) -> None:
@@ -68,6 +70,39 @@ class TestNewGame:
                 assert g.field[r][c].intention == CellIntention.STAND
             for c in range(PLAY_AREA_END, FIELD_SIZE):             # right
                 assert g.field[r][c].intention == CellIntention.STAND
+
+    def test_play_area_gets_default_obstacles(self):
+        """v1 parity: new_game places 2 random STAND obstacles inside the play
+        area so the very first shot has something to aim at. Without this the
+        game is unplayable (every shot rejected by the 'obstacle in path'
+        precondition)."""
+        g = Game(pick_color=lambda: 0)
+        g.new_game()
+        play_area_bricks = [
+            g.field[r][c]
+            for r in range(PLAY_AREA_START, PLAY_AREA_END)
+            for c in range(PLAY_AREA_START, PLAY_AREA_END)
+            if g.field[r][c].intention == CellIntention.STAND
+        ]
+        assert len(play_area_bricks) == 2
+
+    def test_num_obstacles_parameter_controls_count(self):
+        g = Game(pick_color=lambda: 0, num_obstacles=5)
+        g.new_game()
+        play_area_bricks = [
+            g.field[r][c]
+            for r in range(PLAY_AREA_START, PLAY_AREA_END)
+            for c in range(PLAY_AREA_START, PLAY_AREA_END)
+            if g.field[r][c].intention == CellIntention.STAND
+        ]
+        assert len(play_area_bricks) == 5
+
+    def test_zero_obstacles_leaves_play_area_empty(self):
+        g = Game(pick_color=lambda: 0, num_obstacles=0)
+        g.new_game()
+        for r in range(PLAY_AREA_START, PLAY_AREA_END):
+            for c in range(PLAY_AREA_START, PLAY_AREA_END):
+                assert g.field[r][c].intention == CellIntention.VOID
 
 
 # --- shoot -------------------------------------------------------------
@@ -127,7 +162,7 @@ class TestShootWithMatch:
         """Arrange two bricks of colour 7 in a row; the shot brick also colour 7
         completes a triplet, triggers BrickMatched and ScoreChanged."""
         # Deterministic colours: every new launcher brick is colour 7.
-        g = Game(pick_color=lambda: 7)
+        g = Game(pick_color=lambda: 7, num_obstacles=0)
         g.new_game()
         row = PLAY_AREA_START + 2
         # Two existing colour-7 bricks in the row, plus an obstacle further in.
@@ -192,7 +227,7 @@ class TestGameOver:
     def test_win_when_play_area_cleared(self):
         """An arbitrary shot that, after resolution, leaves the play area
         entirely void produces a GameOver(won=True) event."""
-        g = Game(pick_color=lambda: 5)
+        g = Game(pick_color=lambda: 5, num_obstacles=0)
         g.new_game()
         # Manually clear the play area and set up a shot that leaves it empty.
         for r in range(PLAY_AREA_START, PLAY_AREA_END):

@@ -11,7 +11,7 @@
  * at the Phaser boundary.
  */
 
-import Phaser from "phaser";
+import * as Phaser from "phaser";
 
 import type { Cell, Snapshot } from "../transport/events";
 import type { GameSocket } from "../transport/ws_client";

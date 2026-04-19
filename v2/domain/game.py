@@ -43,9 +43,13 @@ class Game:
         self,
         num_colors: int = 7,
         pick_color: Optional[PickColor] = None,
+        num_obstacles: int = 2,
+        rng: Optional[random.Random] = None,
     ) -> None:
         self.num_colors = num_colors
-        self._pick_color: PickColor = pick_color or (lambda: random.randint(0, num_colors - 1))
+        self._rng = rng or random.Random()
+        self._pick_color: PickColor = pick_color or (lambda: self._rng.randint(0, num_colors - 1))
+        self._num_obstacles = num_obstacles
         self.field: Field = _empty_field()
         self.score: int = 0
         self.history = HistoryStack()
@@ -62,8 +66,20 @@ class Game:
                 intention=CellIntention.STAND,
                 color_index=self._pick_color(),
             )
-        # Intentionally no events yet — caller reads the field directly for
-        # the initial draw. Events start flowing on the first action.
+        # v1 parity: sprinkle a few STAND obstacles in the play area so the
+        # very first shot has something to aim at.
+        placed = 0
+        while placed < self._num_obstacles:
+            r = self._rng.randint(PLAY_AREA_START, PLAY_AREA_END - 1)
+            c = self._rng.randint(PLAY_AREA_START, PLAY_AREA_END - 1)
+            if self.field[r][c].intention == CellIntention.VOID:
+                self.field[r][c] = Brick(
+                    intention=CellIntention.STAND,
+                    color_index=self._pick_color(),
+                )
+                placed += 1
+        # Caller reads the field directly for the initial draw; events start
+        # flowing on the first action.
         return []
 
     def shoot(self, cell: Cell) -> list[DomainEvent]:

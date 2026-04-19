@@ -46,7 +46,7 @@ def test_full_round_shot_match_refill_undo():
     # Deterministic colour stream. First call returns 7 (used for match),
     # subsequent calls return 3 (so refills don't accidentally form new matches).
     colours = iter([7] * 60 + [3] * 1000)
-    game = Game(pick_color=lambda: next(colours))
+    game = Game(pick_color=lambda: next(colours), num_obstacles=0)
     presenter = RecordingPresenter()
 
     # Contract sanity.

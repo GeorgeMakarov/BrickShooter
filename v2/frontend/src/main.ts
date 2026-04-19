@@ -3,7 +3,7 @@
  * overlay (score, buttons, game-over banner) to the scene.
  */
 
-import Phaser from "phaser";
+import * as Phaser from "phaser";
 
 import { GridScene } from "./scenes/GridScene";
 import { GameSocket } from "./transport/ws_client";
