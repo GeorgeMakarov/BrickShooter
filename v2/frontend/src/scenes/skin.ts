@@ -2,12 +2,11 @@
  * Programmatic brick skin.
  *
  * Generates a Phaser texture per (intention, colour) combination at runtime.
- * Keeps the look decoupled from any bitmap — change this file to change the
- * skin; no assets to reload.
+ * The look is a raised button: thick light bevel on top/left, thick shadow
+ * bevel on bottom/right. Directional variants have a large recessed arrow cut
+ * into the surface (dark outline + shadow fill — reads as embossed-inward).
  *
- * Each brick is drawn as a raised button: base fill, lighter bevel on
- * top/left, darker bevel on bottom/right, and (for directional bricks) a
- * white arrow overlay pointing the way the brick is heading.
+ * No bitmap dependency — to reskin, edit the drawing functions in this file.
  */
 
 import * as Phaser from "phaser";
@@ -15,7 +14,6 @@ import * as Phaser from "phaser";
 import { BRICK_COLORS } from "./colors";
 
 const INTENTIONS = ["STAND", "TO_LEFT", "TO_RIGHT", "TO_UP", "TO_DOWN"] as const;
-export type Intention = (typeof INTENTIONS)[number];
 
 export function brickTextureKey(intention: string, colorIndex: number): string {
   return `brick-${intention}-${colorIndex}`;
@@ -34,65 +32,151 @@ export function generateBrickTextures(scene: Phaser.Scene, size = 30): void {
   }
 }
 
-function drawBrick(g: Phaser.GameObjects.Graphics, size: number, baseColor: number, intention: string): void {
-  const bevel = 3;
-  const highlight = shiftBrightness(baseColor, 1.35);
-  const shadow = shiftBrightness(baseColor, 0.65);
+// ---- drawing -----------------------------------------------------------
 
-  // Base fill.
-  g.fillStyle(baseColor, 1);
+function drawBrick(
+  g: Phaser.GameObjects.Graphics,
+  size: number,
+  baseColor: number,
+  intention: string,
+): void {
+  const bevel = Math.max(3, Math.round(size * 0.15)); //!< ~15% of cell = thick 3D rim
+  const highlight = shiftBrightness(baseColor, 1.45);
+  const shadow = shiftBrightness(baseColor, 0.55);
+  const edge = shiftBrightness(baseColor, 0.35);
+
+  // Outer edge — a 1px hard darker ring so neighbouring bricks don't bleed.
+  g.fillStyle(edge, 1);
   g.fillRect(0, 0, size, size);
 
-  // Top + left highlight (light bevel).
+  // Top + left highlight.
   g.fillStyle(highlight, 1);
-  g.fillRect(0, 0, size, bevel);                //!< top edge
-  g.fillRect(0, 0, bevel, size);                //!< left edge
+  fillPolygon(g, [
+    [1, 1],
+    [size - 1, 1],
+    [size - 1 - bevel, 1 + bevel],
+    [1 + bevel, 1 + bevel],
+    [1 + bevel, size - 1 - bevel],
+    [1, size - 1],
+  ]);
 
-  // Bottom + right shadow (dark bevel).
+  // Bottom + right shadow.
   g.fillStyle(shadow, 1);
-  g.fillRect(0, size - bevel, size, bevel);     //!< bottom edge
-  g.fillRect(size - bevel, 0, bevel, size);     //!< right edge
+  fillPolygon(g, [
+    [size - 1, 1],
+    [size - 1, size - 1],
+    [1, size - 1],
+    [1 + bevel, size - 1 - bevel],
+    [size - 1 - bevel, size - 1 - bevel],
+    [size - 1 - bevel, 1 + bevel],
+  ]);
 
-  // Corner mitres: keep the top-right and bottom-left from looking wrong
-  // where highlight and shadow meet. Draw small dark/light triangles.
-  g.fillStyle(shadow, 1);
-  g.fillTriangle(size - bevel, 0, size, 0, size, bevel);          //!< top-right corner (shadowed)
-  g.fillStyle(highlight, 1);
-  g.fillTriangle(0, size - bevel, bevel, size, 0, size);          //!< bottom-left corner (highlit)
+  // Flat centre — the button face.
+  g.fillStyle(baseColor, 1);
+  g.fillRect(1 + bevel, 1 + bevel, size - 2 - 2 * bevel, size - 2 - 2 * bevel);
 
-  // Arrow overlay for directional bricks.
-  drawArrow(g, size, intention);
+  // Directional arrow embossed into the face.
+  drawArrow(g, size, bevel, baseColor, intention);
 }
 
-function drawArrow(g: Phaser.GameObjects.Graphics, size: number, intention: string): void {
+function drawArrow(
+  g: Phaser.GameObjects.Graphics,
+  size: number,
+  bevel: number,
+  baseColor: number,
+  intention: string,
+): void {
+  if (intention === "STAND") return;
+
+  const outline = shiftBrightness(baseColor, 0.3);   //!< dark outline — reads as recessed
+  const fill = shiftBrightness(baseColor, 0.78);     //!< slightly darker than base
+
+  const inset = bevel + 2; //!< keep arrow inside the button face
+  const span = size - 2 * inset;
   const cx = size / 2;
   const cy = size / 2;
-  const s = size * 0.22; //!< half-length of the arrow
-  g.fillStyle(0xffffff, 0.92);
+  const half = span / 2;
+
+  // Arrow points: filled-arrow silhouette with a rectangular tail.
+  // Visually matches the v1 NBricks.bmp shapes.
+  let tri: Array<[number, number]>;
   switch (intention) {
-    case "TO_LEFT":
-      g.fillTriangle(cx - s, cy, cx + s, cy - s, cx + s, cy + s);
-      break;
     case "TO_RIGHT":
-      g.fillTriangle(cx - s, cy - s, cx - s, cy + s, cx + s, cy);
+      tri = [
+        [cx + half,         cy],
+        [cx - half * 0.25,  cy - half],
+        [cx - half * 0.25,  cy - half * 0.45],
+        [cx - half,         cy - half * 0.45],
+        [cx - half,         cy + half * 0.45],
+        [cx - half * 0.25,  cy + half * 0.45],
+        [cx - half * 0.25,  cy + half],
+      ];
       break;
-    case "TO_UP":
-      g.fillTriangle(cx, cy - s, cx - s, cy + s, cx + s, cy + s);
+    case "TO_LEFT":
+      tri = [
+        [cx - half,         cy],
+        [cx + half * 0.25,  cy - half],
+        [cx + half * 0.25,  cy - half * 0.45],
+        [cx + half,         cy - half * 0.45],
+        [cx + half,         cy + half * 0.45],
+        [cx + half * 0.25,  cy + half * 0.45],
+        [cx + half * 0.25,  cy + half],
+      ];
       break;
     case "TO_DOWN":
-      g.fillTriangle(cx - s, cy - s, cx + s, cy - s, cx, cy + s);
+      tri = [
+        [cx,                cy + half],
+        [cx - half,         cy - half * 0.25],
+        [cx - half * 0.45,  cy - half * 0.25],
+        [cx - half * 0.45,  cy - half],
+        [cx + half * 0.45,  cy - half],
+        [cx + half * 0.45,  cy - half * 0.25],
+        [cx + half,         cy - half * 0.25],
+      ];
+      break;
+    case "TO_UP":
+      tri = [
+        [cx,                cy - half],
+        [cx - half,         cy + half * 0.25],
+        [cx - half * 0.45,  cy + half * 0.25],
+        [cx - half * 0.45,  cy + half],
+        [cx + half * 0.45,  cy + half],
+        [cx + half * 0.45,  cy + half * 0.25],
+        [cx + half,         cy + half * 0.25],
+      ];
       break;
     default:
-      // STAND: no overlay.
       return;
   }
+
+  // Dark outline + lighter fill = "pressed into the surface" look.
+  g.fillStyle(outline, 1);
+  fillPolygon(g, tri);
+  g.fillStyle(fill, 1);
+  const shrunk: Array<[number, number]> = tri.map(([x, y]) => [
+    cx + (x - cx) * 0.78,
+    cy + (y - cy) * 0.78,
+  ]);
+  fillPolygon(g, shrunk);
 }
+
+function fillPolygon(g: Phaser.GameObjects.Graphics, pts: Array<[number, number]>): void {
+  g.beginPath();
+  g.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length; i++) {
+    g.lineTo(pts[i][0], pts[i][1]);
+  }
+  g.closePath();
+  g.fillPath();
+}
+
+// ---- colour helpers ----------------------------------------------------
 
 function shiftBrightness(color: number, factor: number): number {
   const r = clamp255(((color >> 16) & 0xff) * factor);
-  const g = clamp255(((color >> 8) & 0xff) * factor);
+  const gCh = clamp255(((color >> 8) & 0xff) * factor);
   const b = clamp255((color & 0xff) * factor);
-  return (r << 16) | (g << 8) | b;
+  return (r << 16) | (gCh << 8) | b;
 }
 
 function clamp255(v: number): number {
