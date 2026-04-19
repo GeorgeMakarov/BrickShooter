@@ -110,6 +110,13 @@
         font-size: 14px;
         opacity: 0.85;
       }
+      .overlay-buttons {
+        display: flex;
+        gap: 10px;
+      }
+      .hidden {
+        display: none !important;
+      }
       .diff select {
         background: #233859;
         color: #e8eef7;
@@ -140,7 +147,10 @@
     <div id="overlay" class="hidden">
       <p id="overlay-msg"></p>
       <div id="overlay-scores"></div>
-      <button id="overlay-new-game">New Game</button>
+      <div class="overlay-buttons">
+        <button id="overlay-close">Close</button>
+        <button id="overlay-new-game">New Game</button>
+      </div>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>

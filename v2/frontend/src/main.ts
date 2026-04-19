@@ -26,6 +26,7 @@ const newGameBtn = document.getElementById("new-game") as HTMLButtonElement;
 const undoBtn = document.getElementById("undo") as HTMLButtonElement;
 const scoresBtn = document.getElementById("scores") as HTMLButtonElement;
 const overlayNewGameBtn = document.getElementById("overlay-new-game") as HTMLButtonElement;
+const overlayCloseBtn = document.getElementById("overlay-close") as HTMLButtonElement;
 const difficultyEl = document.getElementById("difficulty") as HTMLSelectElement;
 
 // --- state ---------------------------------------------------------------
@@ -52,17 +53,26 @@ function onScore(total: number): void {
   scoreEl.textContent = total.toString();
 }
 
-function onGameOver(reason: string, won: boolean): void {
-  const { insertedAt } = recordScore(currentScore, difficulty);
-  overlayMsgEl.textContent = (won ? "🎉  " : "💀  ") + reason;
-  renderScores(overlayScoresEl, difficulty, insertedAt);
+function showOverlay(opts: { message: string; highlightIndex?: number; mode: "game_over" | "browsing" }): void {
+  overlayMsgEl.textContent = opts.message;
+  renderScores(overlayScoresEl, difficulty, opts.highlightIndex ?? -1);
+  // game-over: only New Game button (game is done, must restart).
+  // browsing:  Close button shown too, so the current game isn't lost.
+  overlayCloseBtn.classList.toggle("hidden", opts.mode !== "browsing");
   overlayEl.classList.remove("hidden");
 }
 
+function onGameOver(reason: string, won: boolean): void {
+  const { insertedAt } = recordScore(currentScore, difficulty);
+  showOverlay({
+    message: (won ? "🎉  " : "💀  ") + reason,
+    highlightIndex: insertedAt,
+    mode: "game_over",
+  });
+}
+
 function openScoresModal(): void {
-  overlayMsgEl.textContent = "High Scores";
-  renderScores(overlayScoresEl, difficulty);
-  overlayEl.classList.remove("hidden");
+  showOverlay({ message: "High Scores", mode: "browsing" });
 }
 
 function hideOverlay(): void {
@@ -89,6 +99,21 @@ scoresBtn.addEventListener("click", openScoresModal);
 overlayNewGameBtn.addEventListener("click", () => {
   hideOverlay();
   requestNewGame();
+});
+
+overlayCloseBtn.addEventListener("click", hideOverlay);
+
+// Clicking the backdrop outside the scores panel also dismisses — convenient.
+overlayEl.addEventListener("click", (event) => {
+  if (event.target === overlayEl && !overlayCloseBtn.classList.contains("hidden")) {
+    hideOverlay();
+  }
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !overlayCloseBtn.classList.contains("hidden")) {
+    hideOverlay();
+  }
 });
 
 difficultyEl.addEventListener("change", () => {
