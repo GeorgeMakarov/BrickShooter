@@ -47,6 +47,9 @@ interface BrickSprite {
   image: Phaser.GameObjects.Image;
   intention: string;
   colorIndex: number;
+  /** Active halo sprite if the brick is in flight (attach + destroy are
+   *  managed by attachMotionFx / the move tween / matchCells). */
+  halo?: Phaser.GameObjects.Image | null;
 }
 
 export class GridScene extends Phaser.Scene implements SpriteLayer, SceneEffects {
@@ -81,6 +84,7 @@ export class GridScene extends Phaser.Scene implements SpriteLayer, SceneEffects
   create(): void {
     generateBrickTextures(this, BRICK_SIZE);
     this.generateParticleTexture();
+    this.generateHaloTexture();
     this.cameras.main.setBackgroundColor(BOARD_BG);
     this.drawGridLines();
     this.drawPlayOutline();
@@ -100,6 +104,29 @@ export class GridScene extends Phaser.Scene implements SpriteLayer, SceneEffects
     g.fillStyle(0xffffff, 1);
     g.fillCircle(6, 6, 6);
     g.generateTexture("particle", 12, 12);
+    g.destroy();
+  }
+
+  /**
+   * 64x64 radial-gradient halo texture used for neon ammo glow. Built by
+   * stacking many low-alpha circles of decreasing radius — gives a smooth
+   * falloff without the stochastic noise of Phaser's Glow filter.
+   * Tint is applied per-sprite at use time.
+   */
+  private generateHaloTexture(): void {
+    if (this.textures.exists("halo")) return;
+    const size = 64;
+    const g = this.make.graphics({ x: 0, y: 0 }, false);
+    const steps = 24;
+    for (let i = 0; i < steps; i++) {
+      const t = i / steps;
+      // Quadratic falloff looks more like neon bleed than a linear one.
+      const alpha = (1 - t) * (1 - t) * 0.09;
+      const radius = (size / 2) * (1 - t * 0.92) + 1;
+      g.fillStyle(0xffffff, alpha);
+      g.fillCircle(size / 2, size / 2, radius);
+    }
+    g.generateTexture("halo", size, size);
     g.destroy();
   }
 
@@ -183,47 +210,119 @@ export class GridScene extends Phaser.Scene implements SpriteLayer, SceneEffects
     // later move. The texture always matches the server-authoritative state.
     sprite.image.setTexture(brickTextureKey(sprite.intention, sprite.colorIndex));
 
+    // BrickMoved events can stack faster than the 120ms tween when the shot
+    // traverses several cells. Kill any in-flight tweens on the sprite and
+    // destroy its previous halo so we always have at most one live set of
+    // motion effects per sprite — otherwise we'd leak a visible trail of
+    // halos at every cell the brick already passed through.
+    this.tweens.killTweensOf(sprite.image);
+    if (sprite.halo) {
+      this.tweens.killTweensOf(sprite.halo);
+      sprite.halo.destroy();
+      sprite.halo = null;
+    }
+    // The blur filter from the previous move might still be attached — clear
+    // before re-applying below.
+    this.clearMotionFx(sprite.image);
+
     // Directional motion (an in-flight shot, not a launcher-queue shift):
-    // attach a Gaussian blur filter aligned with the travel axis to the
-    // sprite itself. Phaser 4's Components.Filters lives on every GameObject
-    // — enable once per sprite, then we can add/remove filters at will.
-    const blur = this.attachMotionBlur(sprite.image, sprite.intention);
+    //  - apply a Gaussian blur filter aligned with the travel axis (real
+    //    motion blur on the sprite itself)
+    //  - spawn a pre-baked halo sprite behind the brick, tweened alongside
+    //    it — gives a clean neon look that Phaser's stochastic Glow
+    //    filter can't match on small sprites.
+    const targetX = to[1] * CELL_SIZE + CELL_SIZE / 2;
+    const targetY = to[0] * CELL_SIZE + CELL_SIZE / 2;
+    const fx = this.attachMotionFx(
+      sprite.image,
+      sprite.intention,
+      sprite.colorIndex,
+      targetX,
+      targetY,
+    );
+    sprite.halo = fx.halo;
 
     this.tweens.add({
       targets: sprite.image,
-      x: to[1] * CELL_SIZE + CELL_SIZE / 2,
-      y: to[0] * CELL_SIZE + CELL_SIZE / 2,
+      x: targetX,
+      y: targetY,
       duration: MOVE_DURATION_MS,
       ease: "Linear",
       onComplete: () => {
-        if (blur !== null && sprite.image.active && sprite.image.filters) {
-          sprite.image.filters.external.remove(blur);
+        if (sprite.image.active && sprite.image.filters) {
+          for (const filter of fx.filters) {
+            sprite.image.filters.external.remove(filter);
+          }
+        }
+        if (sprite.halo === fx.halo) {
+          sprite.halo?.destroy();
+          sprite.halo = null;
         }
       },
     });
   }
 
   /**
-   * Attach a directional Gaussian blur to an Image for the duration of a move.
-   * Returns the filter controller (or null for non-directional bricks) so the
-   * caller can remove it when the tween completes.
+   * Attach motion effects to an in-flight brick:
+   *  - Gaussian blur filter on the sprite itself (real per-axis motion blur)
+   *  - Halo sprite behind the brick (neon glow); tweened alongside the
+   *    brick via a fresh tween so both arrive at the destination together
+   *
+   * Returns the filter controllers (for removal on move complete) plus the
+   * halo reference (for destroy on move complete OR early death in match).
    */
-  private attachMotionBlur(
+  private attachMotionFx(
     image: Phaser.GameObjects.Image,
     intention: string,
-  ): Phaser.Filters.Blur | null {
-    if (intention === "STAND" || intention === "VOID") return null;
+    colorIndex: number,
+    targetX: number,
+    targetY: number,
+  ): { filters: Phaser.Filters.Blur[]; halo: Phaser.GameObjects.Image | null } {
+    if (intention === "STAND" || intention === "VOID") return { filters: [], halo: null };
+
     if (!image.filters) image.enableFilters();
+    const external = image.filters!.external;
     const horizontal = intention === "TO_LEFT" || intention === "TO_RIGHT";
-    const strength = 4;
-    return image.filters!.external.addBlur(
+    const blur = external.addBlur(
       /* quality */ 1,
-      /* x */ horizontal ? strength : 0,
-      /* y */ horizontal ? 0 : strength,
+      /* x */ horizontal ? 4 : 0,
+      /* y */ horizontal ? 0 : 4,
       /* strength */ 1,
       /* colour */ 0xffffff,
       /* steps */ 4,
     );
+
+    const halo = this.add.image(image.x, image.y, "halo");
+    // Tint to the brick's own colour — the bright additive blend lifts the
+    // hue well above the brick body, so it reads as "this brick's energy"
+    // rather than merging with the sprite.
+    halo.setTint(colorFor(colorIndex));
+    halo.setBlendMode(Phaser.BlendModes.ADD);
+    halo.setScale(1.1);
+    halo.setDepth(image.depth - 1); // sit behind the brick
+    // Track the brick's position by running a parallel tween with the same
+    // duration and easing. The movement tween above will settle at the same
+    // moment.
+    this.tweens.add({
+      targets: halo,
+      x: targetX,
+      y: targetY,
+      duration: MOVE_DURATION_MS,
+      ease: "Linear",
+    });
+
+    return { filters: [blur], halo };
+  }
+
+  /** Remove every external filter on an Image. Safe to call on sprites
+   *  without filters enabled. Used by matchCells to clean up a moving
+   *  sprite that's about to die — otherwise the halo blur would wash out
+   *  the match particles. Halo sprites are per-brick and tracked via the
+   *  attach return; they don't need clean-up here (they self-destruct
+   *  on their own tween's onComplete as they chase the dying brick). */
+  private clearMotionFx(image: Phaser.GameObjects.Image): void {
+    if (!image.filters) return;
+    image.filters.external.clear();
   }
 
   matchCells(cells: Cell[], colorIndex: number): void {
@@ -246,10 +345,19 @@ export class GridScene extends Phaser.Scene implements SpriteLayer, SceneEffects
       if (sprite) {
         this.sprites.delete(cellKey(cell));
         // Snap the sprite to the cell centre first, then shrink+fade it out,
-        // so its visual disappearance is co-located with the burst.
+        // so its visual disappearance is co-located with the burst. Drop any
+        // in-flight motion effects so the match particles aren't washed out
+        // by a lingering glow — killing the move tween below wouldn't fire
+        // its onComplete.
         sprite.image.x = centerX;
         sprite.image.y = centerY;
         this.tweens.killTweensOf(sprite.image);
+        this.clearMotionFx(sprite.image);
+        if (sprite.halo) {
+          this.tweens.killTweensOf(sprite.halo);
+          sprite.halo.destroy();
+          sprite.halo = null;
+        }
         this.tweens.add({
           targets: sprite.image,
           scale: 0,
