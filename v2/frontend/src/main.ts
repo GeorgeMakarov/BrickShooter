@@ -64,9 +64,11 @@ new Phaser.Game({
   parent: "game",
   backgroundColor: "#0f1b2d",
   scene: [GridScene],
+  // Scale.NONE keeps the canvas a fixed BOARD_SIZE x BOARD_SIZE regardless of
+  // parent size. FIT causes a visible resize pulse as the page's CSS/fonts
+  // settle and the parent div's computed size changes a couple of times.
   scale: {
-    mode: Phaser.Scale.FIT,
-    autoCenter: Phaser.Scale.CENTER_BOTH,
+    mode: Phaser.Scale.NONE,
   },
   callbacks: {
     preBoot: (game) => {
