@@ -19,10 +19,16 @@ const newGameBtn = document.getElementById("new-game") as HTMLButtonElement;
 const undoBtn = document.getElementById("undo") as HTMLButtonElement;
 const overlayNewGameBtn = document.getElementById("overlay-new-game") as HTMLButtonElement;
 
-const wsUrl = import.meta.env.DEV
+const SID_KEY = "brickshooter.sid";
+
+const baseWsUrl = import.meta.env.DEV
   ? `ws://${location.hostname}:8000/ws`
   : `ws://${location.host}/ws`;
+const savedSid = localStorage.getItem(SID_KEY);
+const wsUrl = savedSid ? `${baseWsUrl}?sid=${encodeURIComponent(savedSid)}` : baseWsUrl;
+
 const socket = new GameSocket(wsUrl);
+socket.onSession((id) => localStorage.setItem(SID_KEY, id));
 
 function onScore(total: number): void {
   scoreEl.textContent = total.toString();

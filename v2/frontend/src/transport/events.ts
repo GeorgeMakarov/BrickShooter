@@ -97,6 +97,23 @@ export function isSnapshot(frame: unknown): frame is Snapshot {
   );
 }
 
+/**
+ * First frame the server sends on every connection. Carries the session id
+ * the client should persist so reconnecting reuses the same server-side Game.
+ */
+export interface SessionFrame {
+  type: "session";
+  id: string;
+}
+
+export function isSession(frame: unknown): frame is SessionFrame {
+  return (
+    frame !== null &&
+    typeof frame === "object" &&
+    (frame as { type?: unknown }).type === "session"
+  );
+}
+
 const EVENT_TYPES = new Set<DomainEvent["type"]>([
   "BrickShot",
   "BrickMoved",

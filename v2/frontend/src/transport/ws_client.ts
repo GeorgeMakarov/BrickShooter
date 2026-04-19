@@ -10,7 +10,7 @@
  * bounce back.
  */
 
-import { decodeEvent, isSnapshot, type DomainEvent, type Snapshot } from "./events";
+import { decodeEvent, isSession, isSnapshot, type DomainEvent, type Snapshot } from "./events";
 
 export interface WebSocketLike {
   readonly readyState: number;
@@ -26,6 +26,7 @@ export type SocketFactory = (url: string) => WebSocketLike;
 
 export type SnapshotHandler = (snapshot: Snapshot) => void;
 export type EventHandler = (event: DomainEvent) => void;
+export type SessionHandler = (sessionId: string) => void;
 
 export interface GameSocketOptions {
   reconnectDelayMs?: number;
@@ -37,6 +38,7 @@ export class GameSocket {
   private ws: WebSocketLike | null = null;
   private snapshotHandlers: SnapshotHandler[] = [];
   private eventHandlers: EventHandler[] = [];
+  private sessionHandlers: SessionHandler[] = [];
   private closed = false;
   private readonly reconnectDelayMs: number;
 
@@ -64,6 +66,10 @@ export class GameSocket {
     this.eventHandlers.push(handler);
   }
 
+  onSession(handler: SessionHandler): void {
+    this.sessionHandlers.push(handler);
+  }
+
   send(message: object): void {
     if (!this.ws) throw new Error("socket not connected");
     this.ws.send(JSON.stringify(message));
@@ -82,6 +88,10 @@ export class GameSocket {
       frame = JSON.parse(text);
     } catch {
       return; // ignore malformed JSON
+    }
+    if (isSession(frame)) {
+      for (const h of this.sessionHandlers) h(frame.id);
+      return;
     }
     if (isSnapshot(frame)) {
       for (const h of this.snapshotHandlers) h(frame);
