@@ -23,48 +23,124 @@
         gap: 12px;
       }
       header {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: 8px;
-      }
-      header .controls {
-        display: flex;
-        align-items: center;
-        gap: 16px;
-        flex-wrap: wrap;
-        justify-content: center;
+        text-align: center;
       }
       h1 {
         margin: 0;
         font-size: 22px;
         font-weight: 600;
       }
-      .score {
-        font-size: 18px;
-        opacity: 0.85;
-      }
-      .score span {
-        font-weight: 600;
-        color: #f1c40f;
-      }
-      button {
-        background: #233859;
-        color: #e8eef7;
-        border: 1px solid #3a5485;
-        padding: 8px 14px;
-        border-radius: 6px;
-        font-size: 14px;
-        cursor: pointer;
-      }
-      button:hover {
-        background: #2f4a76;
+
+      /* The board has a fixed pixel size; absolute corners overlay the canvas */
+      /* cells that never hold a brick (the 3x3 blocks outside the play area). */
+      #board-frame {
+        position: relative;
+        width: 512px;
+        height: 512px;
       }
       #game {
+        width: 100%;
+        height: 100%;
         border: 1px solid #2c3f5e;
         border-radius: 8px;
         overflow: hidden;
       }
+      .corner {
+        position: absolute;
+        width: 96px;   /* 3 cells * 32 */
+        height: 96px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 4px;
+        padding: 4px;
+        box-sizing: border-box;
+        pointer-events: none; /* children re-enable as needed */
+      }
+      .corner > * {
+        pointer-events: auto;
+      }
+      .corner-tl { top: 0; left: 0; }
+      .corner-tr { top: 0; right: 0; }
+      .corner-bl { bottom: 0; left: 0; }
+      .corner-br { bottom: 0; right: 0; }
+
+      .corner-stat {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        gap: 6px;
+        width: 100%;
+        font-size: 12px;
+        line-height: 1;
+      }
+      .corner-stat .label { opacity: 0.7; }
+      .corner-stat .num {
+        font-size: 16px;
+        font-weight: 700;
+        color: #f1c40f;
+      }
+
+      button {
+        background: #233859;
+        color: #e8eef7;
+        border: 1px solid #3a5485;
+        padding: 6px 10px;
+        border-radius: 6px;
+        font-size: 13px;
+        cursor: pointer;
+        width: 84px;
+      }
+      button:hover {
+        background: #2f4a76;
+      }
+
+      .name-btn {
+        background: transparent;
+        border: 1px solid transparent;
+        color: #f1c40f;
+        font-size: 14px;
+        font-weight: 600;
+        padding: 4px 6px;
+        cursor: pointer;
+        width: 84px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .name-btn:hover {
+        background: #1a2640;
+        border-color: #3a5485;
+      }
+      .name-btn small {
+        display: block;
+        font-size: 11px;
+        font-weight: 400;
+        opacity: 0.7;
+        color: #e8eef7;
+        margin-bottom: 2px;
+      }
+
+      .diff {
+        font-size: 11px;
+        opacity: 0.75;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 2px;
+      }
+      .diff select {
+        background: #233859;
+        color: #e8eef7;
+        border: 1px solid #3a5485;
+        padding: 3px 6px;
+        border-radius: 4px;
+        font-size: 12px;
+        width: 84px;
+      }
+
+      /* --- overlay modal ----------------------------------------------- */
       #overlay {
         position: fixed;
         inset: 0;
@@ -75,12 +151,9 @@
         justify-content: center;
         gap: 20px;
       }
-      #overlay.hidden {
-        display: none;
-      }
-      #overlay-msg {
-        font-size: 24px;
-      }
+      #overlay.hidden { display: none; }
+      .hidden { display: none !important; }
+      #overlay-msg { font-size: 24px; }
       #overlay-scores {
         background: #13213a;
         border: 1px solid #2c3f5e;
@@ -96,32 +169,14 @@
         font-weight: 600;
         opacity: 0.85;
       }
-      #overlay-scores ol {
-        margin: 0;
-        padding-left: 28px;
-        font-size: 13px;
-      }
+      #overlay-scores ol { margin: 0; padding-left: 28px; font-size: 13px; }
       #overlay-scores li {
         padding: 2px 0;
         display: flex;
         justify-content: space-between;
         gap: 12px;
       }
-      #overlay-scores li.fresh {
-        color: #f1c40f;
-        font-weight: 600;
-      }
-      .diff {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        font-size: 14px;
-        opacity: 0.85;
-      }
-      .overlay-buttons {
-        display: flex;
-        gap: 10px;
-      }
+      #overlay-scores li.fresh { color: #f1c40f; font-weight: 600; }
       #overlay-input {
         background: #13213a;
         color: #e8eef7;
@@ -136,6 +191,13 @@
         outline: none;
         border-color: #5478b5;
       }
+      .overlay-buttons {
+        display: flex;
+        gap: 10px;
+      }
+      .overlay-buttons button {
+        width: auto;
+      }
       .overlay-buttons button.primary {
         background: #3a5485;
         border-color: #5478b5;
@@ -143,41 +205,39 @@
       .overlay-buttons button.primary:hover {
         background: #4c6fa8;
       }
-      .hidden {
-        display: none !important;
-      }
-      .name-btn {
-        background: transparent;
-        border: 1px solid transparent;
-        color: #f1c40f;
-        font-size: 15px;
-        font-weight: 600;
-        padding: 4px 8px;
-        cursor: pointer;
-      }
-      .name-btn:hover {
-        background: #1a2640;
-        border-color: #3a5485;
-      }
-      .diff select {
-        background: #233859;
-        color: #e8eef7;
-        border: 1px solid #3a5485;
-        padding: 4px 8px;
-        border-radius: 4px;
-        font-size: 14px;
-      }
     </style>
   </head>
   <body>
     <header>
       <h1>BrickShooter</h1>
-      <div class="controls">
+    </header>
+    <div id="board-frame">
+      <div id="game"></div>
+
+      <div class="corner corner-tl">
         <button id="name-btn" class="name-btn" title="Change name">
-          <span id="player-name">Player</span> ✏️
+          <small>Player</small>
+          <span id="player-name">—</span>
         </button>
-        <span class="score">Level: <span id="level">1</span></span>
-        <span class="score">Score: <span id="score">0</span></span>
+      </div>
+
+      <div class="corner corner-tr">
+        <div class="corner-stat">
+          <span class="label">Level</span>
+          <span class="num" id="level">1</span>
+        </div>
+        <div class="corner-stat">
+          <span class="label">Score</span>
+          <span class="num" id="score">0</span>
+        </div>
+        <button id="scores">Scores</button>
+      </div>
+
+      <div class="corner corner-bl">
+        <button id="undo">Undo</button>
+      </div>
+
+      <div class="corner corner-br">
         <label class="diff">
           Difficulty
           <select id="difficulty">
@@ -187,11 +247,9 @@
           </select>
         </label>
         <button id="new-game">New Game</button>
-        <button id="undo">Undo</button>
-        <button id="scores">Scores</button>
       </div>
-    </header>
-    <div id="game"></div>
+    </div>
+
     <div id="overlay" class="hidden">
       <p id="overlay-msg"></p>
       <input id="overlay-input" class="hidden" type="text" maxlength="24" autocomplete="off" />
