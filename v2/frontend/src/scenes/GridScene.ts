@@ -33,8 +33,14 @@ export interface GridSceneDeps {
   onGameOver: (reason: string, won: boolean) => void;
 }
 
+interface BrickSprite {
+  root: Phaser.GameObjects.Container;
+  body: Phaser.GameObjects.Rectangle;
+  arrow: Phaser.GameObjects.Triangle | null;
+}
+
 export class GridScene extends Phaser.Scene implements SpriteLayer, SceneEffects {
-  private sprites = new Map<string, Phaser.GameObjects.Rectangle>();
+  private sprites = new Map<string, BrickSprite>();
   private socket!: GameSocket;
   private onScore!: (total: number) => void;
   private onGameOver!: (reason: string, won: boolean) => void;
@@ -93,20 +99,24 @@ export class GridScene extends Phaser.Scene implements SpriteLayer, SceneEffects
   // --- SpriteLayer ---------------------------------------------------
 
   clear(): void {
-    for (const s of this.sprites.values()) s.destroy();
+    for (const s of this.sprites.values()) s.root.destroy();
     this.sprites.clear();
   }
 
   place(args: PlaceArgs): void {
-    const rect = this.add.rectangle(
-      args.x + CELL_SIZE / 2,
-      args.y + CELL_SIZE / 2,
-      CELL_SIZE - 2,
-      CELL_SIZE - 2,
-      colorFor(args.colorIndex),
-    );
-    rect.setStrokeStyle(1, 0xffffff, 0.25);
-    this.sprites.set(args.id, rect);
+    const root = this.add.container(args.x + CELL_SIZE / 2, args.y + CELL_SIZE / 2);
+    const body = this.add.rectangle(0, 0, CELL_SIZE - 2, CELL_SIZE - 2, colorFor(args.colorIndex));
+    body.setStrokeStyle(1, 0xffffff, 0.25);
+    root.add(body);
+
+    // Intention arrow: only drawn for bricks that are currently directional.
+    // Bricks in launchers arrive as STAND; bricks in flight show an arrow
+    // while a BrickMoved tween is active (added in moveBrick, removed on
+    // tween complete).
+    const arrow = makeArrow(this, args.intention);
+    if (arrow !== null) root.add(arrow);
+
+    this.sprites.set(args.id, { root, body, arrow });
   }
 
   // --- SceneEffects --------------------------------------------------
@@ -134,8 +144,12 @@ export class GridScene extends Phaser.Scene implements SpriteLayer, SceneEffects
     if (!sprite) return;
     this.sprites.delete(cellKey(from));
     this.sprites.set(cellKey(to), sprite);
+
+    // Attach/refresh the direction arrow for the duration of the tween.
+    this.attachArrow(sprite, intentionFor(from, to));
+
     this.tweens.add({
-      targets: sprite,
+      targets: sprite.root,
       x: to[1] * CELL_SIZE + CELL_SIZE / 2,
       y: to[0] * CELL_SIZE + CELL_SIZE / 2,
       duration: MOVE_DURATION_MS,
@@ -150,15 +164,15 @@ export class GridScene extends Phaser.Scene implements SpriteLayer, SceneEffects
       if (!sprite) continue;
       this.sprites.delete(cellKey(cell));
       // Particle burst at the sprite's world position.
-      const centerX = sprite.x;
-      const centerY = sprite.y;
+      const centerX = sprite.root.x;
+      const centerY = sprite.root.y;
       this.tweens.add({
-        targets: sprite,
+        targets: sprite.root,
         scale: 0,
         alpha: 0,
         duration: 220,
         ease: "Cubic.easeIn",
-        onComplete: () => sprite.destroy(),
+        onComplete: () => sprite.root.destroy(),
       });
       for (let i = 0; i < 6; i++) {
         const angle = (Math.PI * 2 * i) / 6;
@@ -184,17 +198,13 @@ export class GridScene extends Phaser.Scene implements SpriteLayer, SceneEffects
 
   spawnBrick(cell: Cell, colorIndex: number): void {
     const [r, c] = cell;
-    const rect = this.add.rectangle(
-      c * CELL_SIZE + CELL_SIZE / 2,
-      r * CELL_SIZE + CELL_SIZE / 2,
-      CELL_SIZE - 2,
-      CELL_SIZE - 2,
-      colorFor(colorIndex),
-    );
-    rect.setStrokeStyle(1, 0xffffff, 0.25);
-    rect.setAlpha(0);
-    this.sprites.set(cellKey(cell), rect);
-    this.tweens.add({ targets: rect, alpha: 1, duration: 200 });
+    const root = this.add.container(c * CELL_SIZE + CELL_SIZE / 2, r * CELL_SIZE + CELL_SIZE / 2);
+    const body = this.add.rectangle(0, 0, CELL_SIZE - 2, CELL_SIZE - 2, colorFor(colorIndex));
+    body.setStrokeStyle(1, 0xffffff, 0.25);
+    root.add(body);
+    root.setAlpha(0);
+    this.sprites.set(cellKey(cell), { root, body, arrow: null });
+    this.tweens.add({ targets: root, alpha: 1, duration: 200 });
   }
 
   updateScore(total: number, _delta: number): void {
@@ -216,6 +226,27 @@ export class GridScene extends Phaser.Scene implements SpriteLayer, SceneEffects
     this.onScore(snapshot.score);
   }
 
+  private attachArrow(sprite: BrickSprite, intention: string): void {
+    // Remove any prior arrow first — e.g. a chained move that changes direction
+    // (unlikely but cheap to guard against).
+    if (sprite.arrow !== null) {
+      sprite.arrow.destroy();
+      sprite.arrow = null;
+    }
+    const arrow = makeArrow(this, intention);
+    if (arrow === null) return;
+    sprite.root.add(arrow);
+    sprite.arrow = arrow;
+    // After the move tween, the brick has "arrived" — drop the arrow so
+    // stationary bricks read as STAND again.
+    this.time.delayedCall(MOVE_DURATION_MS, () => {
+      if (sprite.arrow === arrow) {
+        arrow.destroy();
+        sprite.arrow = null;
+      }
+    });
+  }
+
   private isLauncherCell(r: number, c: number): boolean {
     const rowInPlay = r >= PLAY_AREA_START && r < PLAY_AREA_END;
     const colInPlay = c >= PLAY_AREA_START && c < PLAY_AREA_END;
@@ -229,4 +260,36 @@ export class GridScene extends Phaser.Scene implements SpriteLayer, SceneEffects
 
 function cellKey(cell: Cell): string {
   return `${cell[0]},${cell[1]}`;
+}
+
+function intentionFor(from: Cell, to: Cell): string {
+  const dr = to[0] - from[0];
+  const dc = to[1] - from[1];
+  if (dc < 0) return "TO_LEFT";
+  if (dc > 0) return "TO_RIGHT";
+  if (dr < 0) return "TO_UP";
+  return "TO_DOWN";
+}
+
+/**
+ * A white-ish triangle overlay pointing in the direction of movement. Returned
+ * unparented so the caller can add it to a container.
+ */
+function makeArrow(scene: Phaser.Scene, intention: string): Phaser.GameObjects.Triangle | null {
+  const s = 7; //!< half-length in pixels
+  const fill = 0xffffff;
+  const alpha = 0.9;
+  switch (intention) {
+    case "TO_LEFT":
+      // apex on the left
+      return scene.add.triangle(0, 0, -s, 0, s, -s, s, s, fill, alpha);
+    case "TO_RIGHT":
+      return scene.add.triangle(0, 0, -s, -s, -s, s, s, 0, fill, alpha);
+    case "TO_UP":
+      return scene.add.triangle(0, 0, 0, -s, -s, s, s, s, fill, alpha);
+    case "TO_DOWN":
+      return scene.add.triangle(0, 0, -s, -s, s, -s, 0, s, fill, alpha);
+    default:
+      return null; // STAND / VOID — no overlay
+  }
 }
