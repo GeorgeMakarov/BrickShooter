@@ -34,6 +34,8 @@ const overlayInputEl = document.getElementById("overlay-input") as HTMLInputElem
 const newGameBtn = document.getElementById("new-game") as HTMLButtonElement;
 const undoBtn = document.getElementById("undo") as HTMLButtonElement;
 const scoresBtn = document.getElementById("scores") as HTMLButtonElement;
+const nameBtn = document.getElementById("name-btn") as HTMLButtonElement;
+const playerNameEl = document.getElementById("player-name") as HTMLSpanElement;
 const difficultyEl = document.getElementById("difficulty") as HTMLSelectElement;
 
 // --- state ---------------------------------------------------------------
@@ -49,26 +51,40 @@ let pendingScoresResolver: ((entries: ScoreEntry[]) => void) | null = null;
 
 // --- player name ---------------------------------------------------------
 
-function askForNameViaOverlay(): Promise<string> {
-  return new Promise<string>((resolve) => {
-    showOverlay({
-      message: "What's your name?",
-      input: { placeholder: "Your name", value: "" },
-      // Not dismissable — we need a name before the game can record scores.
-      actions: [
-        {
-          label: "OK",
-          primary: true,
-          handler: () => {
-            const raw = overlayInputEl.value;
-            const stored = storeName(raw);
-            hideOverlay();
-            resolve(stored);
-          },
+function askForName(opts: { currentName?: string; dismissable: boolean }): Promise<string | null> {
+  return new Promise<string | null>((resolve) => {
+    const actions: OverlayAction[] = [];
+    if (opts.dismissable) {
+      actions.push({
+        label: "Cancel",
+        handler: () => {
+          hideOverlay();
+          resolve(null);
         },
-      ],
+      });
+    }
+    actions.push({
+      label: "OK",
+      primary: true,
+      handler: () => {
+        const raw = overlayInputEl.value;
+        const stored = storeName(raw);
+        hideOverlay();
+        resolve(stored);
+      },
+    });
+    showOverlay({
+      message: opts.currentName ? "Change your name" : "What's your name?",
+      input: { placeholder: "Your name", value: opts.currentName ?? "" },
+      dismissable: opts.dismissable,
+      actions,
     });
   });
+}
+
+function setPlayerName(name: string): void {
+  playerName = name;
+  playerNameEl.textContent = name;
 }
 
 // --- WS ------------------------------------------------------------------
@@ -272,6 +288,14 @@ newGameBtn.addEventListener("click", confirmAndNewGame);
 undoBtn.addEventListener("click", () => socket.send({ type: "undo" }));
 scoresBtn.addEventListener("click", openScoresModal);
 
+nameBtn.addEventListener("click", async () => {
+  const next = await askForName({ currentName: playerName, dismissable: true });
+  if (next !== null && next !== playerName) {
+    setPlayerName(next);
+    socket.send({ type: "set_name", name: next });
+  }
+});
+
 overlayEl.addEventListener("click", (event) => {
   if (event.target === overlayEl && dismissableOpen) hideOverlay();
 });
@@ -312,6 +336,9 @@ new Phaser.Game({
 // session + snapshot as soon as the server sends them.
 (async () => {
   const stored = getStoredName();
-  playerName = stored ?? await askForNameViaOverlay();
+  const resolved =
+    stored ??
+    (await askForName({ dismissable: false }))!; // not dismissable → always non-null
+  setPlayerName(resolved);
   socket.connect();
 })();

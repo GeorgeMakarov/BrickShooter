@@ -146,6 +146,19 @@
       .hidden {
         display: none !important;
       }
+      .name-btn {
+        background: transparent;
+        border: 1px solid transparent;
+        color: #f1c40f;
+        font-size: 15px;
+        font-weight: 600;
+        padding: 4px 8px;
+        cursor: pointer;
+      }
+      .name-btn:hover {
+        background: #1a2640;
+        border-color: #3a5485;
+      }
       .diff select {
         background: #233859;
         color: #e8eef7;
@@ -160,6 +173,9 @@
     <header>
       <h1>BrickShooter</h1>
       <div class="controls">
+        <button id="name-btn" class="name-btn" title="Change name">
+          <span id="player-name">Player</span> ✏️
+        </button>
         <span class="score">Level: <span id="level">1</span></span>
         <span class="score">Score: <span id="score">0</span></span>
         <label class="diff">
