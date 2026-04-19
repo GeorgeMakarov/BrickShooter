@@ -53,10 +53,20 @@ export class GridScene extends Phaser.Scene implements SpriteLayer, SceneEffects
     // Background.
     this.cameras.main.setBackgroundColor(BOARD_BG);
 
-    // Play-area outline (10x10 inner square).
-    const graphics = this.add.graphics();
-    graphics.lineStyle(2, PLAY_BORDER, 0.8);
-    graphics.strokeRect(
+    // Thin grid lines across the full 16x16 board.
+    const grid = this.add.graphics();
+    grid.lineStyle(1, 0xffffff, 0.1);
+    const boardPx = FIELD_SIZE * CELL_SIZE;
+    for (let i = 1; i < FIELD_SIZE; i++) {
+      const p = i * CELL_SIZE;
+      grid.lineBetween(0, p, boardPx, p);    // horizontal
+      grid.lineBetween(p, 0, p, boardPx);    // vertical
+    }
+
+    // Play-area outline (10x10 inner square) — thicker, on top of the grid.
+    const outline = this.add.graphics();
+    outline.lineStyle(2, PLAY_BORDER, 0.8);
+    outline.strokeRect(
       PLAY_AREA_START * CELL_SIZE,
       PLAY_AREA_START * CELL_SIZE,
       (PLAY_AREA_END - PLAY_AREA_START) * CELL_SIZE,
