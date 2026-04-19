@@ -53,10 +53,23 @@ _FIELD_RESTORERS: dict[str, Callable[[Any], Any]] = {
 
 
 def to_json(event: DomainEvent) -> dict:
-    """Encode `event` as a JSON-serialisable dict with a `type` discriminator."""
-    payload = dataclasses.asdict(event)
+    """Encode `event` as a JSON-shaped dict with a `type` discriminator.
+
+    Tuples are converted to lists so the dict matches what `json.dumps` would
+    produce; this keeps in-memory frames consistent with wire frames and lets
+    tests compare against the JSON form directly.
+    """
+    payload = {k: _jsonify(v) for k, v in dataclasses.asdict(event).items()}
     payload["type"] = type(event).__name__
     return payload
+
+
+def _jsonify(value: Any) -> Any:
+    if isinstance(value, tuple):
+        return [_jsonify(v) for v in value]
+    if isinstance(value, list):
+        return [_jsonify(v) for v in value]
+    return value
 
 
 def from_json(frame: dict) -> DomainEvent:
