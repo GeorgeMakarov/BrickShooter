@@ -32,6 +32,7 @@ const difficultyEl = document.getElementById("difficulty") as HTMLSelectElement;
 // --- state ---------------------------------------------------------------
 
 let currentScore = 0;
+let hasProgress = false; //!< true after the first shot of the current game
 let difficulty: Difficulty = (localStorage.getItem(DIFFICULTY_KEY) as Difficulty | null) ?? "normal";
 difficultyEl.value = difficulty;
 
@@ -45,6 +46,15 @@ const wsUrl = savedSid ? `${baseWsUrl}?sid=${encodeURIComponent(savedSid)}` : ba
 
 const socket = new GameSocket(wsUrl);
 socket.onSession((id) => localStorage.setItem(SID_KEY, id));
+
+// Track whether the current game has any progress worth protecting.
+// Any snapshot resets it (new_game / restore); any BrickShot sets it.
+socket.onSnapshot(() => {
+  hasProgress = false;
+});
+socket.onEvent((event) => {
+  if (event.type === "BrickShot") hasProgress = true;
+});
 
 // --- UI callbacks --------------------------------------------------------
 
@@ -64,6 +74,8 @@ function showOverlay(opts: { message: string; highlightIndex?: number; mode: "ga
 
 function onGameOver(reason: string, won: boolean): void {
   const { insertedAt } = recordScore(currentScore, difficulty);
+  // Game is done — nothing to protect against accidental New Game.
+  hasProgress = false;
   showOverlay({
     message: (won ? "🎉  " : "💀  ") + reason,
     highlightIndex: insertedAt,
@@ -83,12 +95,17 @@ function requestNewGame(): void {
   socket.send({ type: "new_game", difficulty });
 }
 
-// --- button wiring -------------------------------------------------------
-
-newGameBtn.addEventListener("click", () => {
+function confirmAndNewGame(): void {
+  if (hasProgress && !confirm("Start a new game? Current progress will be lost.")) {
+    return;
+  }
   hideOverlay();
   requestNewGame();
-});
+}
+
+// --- button wiring -------------------------------------------------------
+
+newGameBtn.addEventListener("click", confirmAndNewGame);
 
 undoBtn.addEventListener("click", () => {
   socket.send({ type: "undo" });
@@ -96,10 +113,7 @@ undoBtn.addEventListener("click", () => {
 
 scoresBtn.addEventListener("click", openScoresModal);
 
-overlayNewGameBtn.addEventListener("click", () => {
-  hideOverlay();
-  requestNewGame();
-});
+overlayNewGameBtn.addEventListener("click", confirmAndNewGame);
 
 overlayCloseBtn.addEventListener("click", hideOverlay);
 
