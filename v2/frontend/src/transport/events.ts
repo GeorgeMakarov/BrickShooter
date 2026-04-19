@@ -73,6 +73,30 @@ export type DomainEvent =
   | StateReverted
   | GameOver;
 
+/**
+ * Full state frame sent on connect and after new_game. Not a DomainEvent —
+ * it describes state, not a transition. The client renders everything from
+ * it verbatim.
+ */
+export type BrickState = {
+  intention: "VOID" | "STAND" | "TO_LEFT" | "TO_RIGHT" | "TO_UP" | "TO_DOWN";
+  color_index: number | null;
+};
+
+export interface Snapshot {
+  type: "snapshot";
+  score: number;
+  field: BrickState[][];
+}
+
+export function isSnapshot(frame: unknown): frame is Snapshot {
+  return (
+    frame !== null &&
+    typeof frame === "object" &&
+    (frame as { type?: unknown }).type === "snapshot"
+  );
+}
+
 const EVENT_TYPES = new Set<DomainEvent["type"]>([
   "BrickShot",
   "BrickMoved",
