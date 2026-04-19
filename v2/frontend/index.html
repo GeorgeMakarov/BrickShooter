@@ -122,6 +122,20 @@
         display: flex;
         gap: 10px;
       }
+      #overlay-input {
+        background: #13213a;
+        color: #e8eef7;
+        border: 1px solid #3a5485;
+        border-radius: 6px;
+        padding: 8px 12px;
+        font-size: 15px;
+        min-width: 240px;
+        text-align: center;
+      }
+      #overlay-input:focus {
+        outline: none;
+        border-color: #5478b5;
+      }
       .overlay-buttons button.primary {
         background: #3a5485;
         border-color: #5478b5;
@@ -164,6 +178,7 @@
     <div id="game"></div>
     <div id="overlay" class="hidden">
       <p id="overlay-msg"></p>
+      <input id="overlay-input" class="hidden" type="text" maxlength="24" autocomplete="off" />
       <div id="overlay-scores"></div>
       <div id="overlay-actions" class="overlay-buttons"></div>
     </div>

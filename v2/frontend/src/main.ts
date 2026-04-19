@@ -30,6 +30,7 @@ const overlayEl = document.getElementById("overlay") as HTMLDivElement;
 const overlayMsgEl = document.getElementById("overlay-msg") as HTMLParagraphElement;
 const overlayScoresEl = document.getElementById("overlay-scores") as HTMLDivElement;
 const overlayActionsEl = document.getElementById("overlay-actions") as HTMLDivElement;
+const overlayInputEl = document.getElementById("overlay-input") as HTMLInputElement;
 const newGameBtn = document.getElementById("new-game") as HTMLButtonElement;
 const undoBtn = document.getElementById("undo") as HTMLButtonElement;
 const scoresBtn = document.getElementById("scores") as HTMLButtonElement;
@@ -48,17 +49,27 @@ let pendingScoresResolver: ((entries: ScoreEntry[]) => void) | null = null;
 
 // --- player name ---------------------------------------------------------
 
-function ensureName(): string {
-  let name = getStoredName();
-  if (name) return name;
-  // First visit — ask. Keep using prompt for simplicity here (modal input in
-  // the overlay would be nicer but doesn't block like prompt).
-  const entered = window.prompt("Your name?", "Player");
-  name = storeName(entered ?? "");
-  return name;
+function askForNameViaOverlay(): Promise<string> {
+  return new Promise<string>((resolve) => {
+    showOverlay({
+      message: "What's your name?",
+      input: { placeholder: "Your name", value: "" },
+      // Not dismissable — we need a name before the game can record scores.
+      actions: [
+        {
+          label: "OK",
+          primary: true,
+          handler: () => {
+            const raw = overlayInputEl.value;
+            const stored = storeName(raw);
+            hideOverlay();
+            resolve(stored);
+          },
+        },
+      ],
+    });
+  });
 }
-
-const playerName = ensureName();
 
 // --- WS ------------------------------------------------------------------
 
@@ -67,6 +78,9 @@ const baseWsUrl = import.meta.env.DEV
   : `ws://${location.host}/ws`;
 const savedSid = localStorage.getItem(SID_KEY);
 const wsUrl = savedSid ? `${baseWsUrl}?sid=${encodeURIComponent(savedSid)}` : baseWsUrl;
+
+/** Filled in before socket.connect() is called, guaranteed non-null after boot. */
+let playerName = "";
 
 const socket = new GameSocket(wsUrl);
 socket.onSession((id) => {
@@ -126,29 +140,55 @@ interface OverlayOptions {
   message: string;
   scoresHtml?: string; //!< pre-rendered by renderServerScores
   dismissable?: boolean;
+  input?: { placeholder?: string; value?: string };
   actions: OverlayAction[];
 }
 
 let dismissableOpen = false;
+/** Set while an input-bearing overlay is open so Enter triggers the primary action. */
+let primaryActionHandler: (() => void) | null = null;
 
 function showOverlay(opts: OverlayOptions): void {
   overlayMsgEl.textContent = opts.message;
+
+  if (opts.input !== undefined) {
+    overlayInputEl.value = opts.input.value ?? "";
+    overlayInputEl.placeholder = opts.input.placeholder ?? "";
+    overlayInputEl.classList.remove("hidden");
+  } else {
+    overlayInputEl.classList.add("hidden");
+  }
+
   if (opts.scoresHtml !== undefined) {
     overlayScoresEl.innerHTML = opts.scoresHtml;
     overlayScoresEl.classList.remove("hidden");
   } else {
     overlayScoresEl.classList.add("hidden");
   }
+
   overlayActionsEl.innerHTML = "";
+  primaryActionHandler = null;
   for (const action of opts.actions) {
     const btn = document.createElement("button");
     btn.textContent = action.label;
-    if (action.primary) btn.classList.add("primary");
+    if (action.primary) {
+      btn.classList.add("primary");
+      primaryActionHandler = action.handler;
+    }
     btn.addEventListener("click", action.handler);
     overlayActionsEl.appendChild(btn);
   }
+
   dismissableOpen = !!opts.dismissable;
   overlayEl.classList.remove("hidden");
+
+  if (opts.input !== undefined) {
+    // Wait a frame so the input is actually visible before focusing.
+    requestAnimationFrame(() => {
+      overlayInputEl.focus();
+      overlayInputEl.select();
+    });
+  }
 }
 
 function hideOverlay(): void {
@@ -238,6 +278,12 @@ overlayEl.addEventListener("click", (event) => {
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && dismissableOpen) hideOverlay();
 });
+overlayInputEl.addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && primaryActionHandler) {
+    event.preventDefault();
+    primaryActionHandler();
+  }
+});
 
 difficultyEl.addEventListener("change", () => {
   difficulty = difficultyEl.value as Difficulty;
@@ -261,4 +307,11 @@ new Phaser.Game({
   },
 });
 
-socket.connect();
+// Resolve the player name (from localStorage or an in-app modal prompt),
+// then open the socket. The scene is already running and will receive the
+// session + snapshot as soon as the server sends them.
+(async () => {
+  const stored = getStoredName();
+  playerName = stored ?? await askForNameViaOverlay();
+  socket.connect();
+})();
