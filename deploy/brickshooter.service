@@ -6,7 +6,7 @@ After=network.target
 Type=simple
 User=brickshooter
 Group=brickshooter
-WorkingDirectory=/opt/brickshooter/backend
+WorkingDirectory=/opt/brickshooter
 EnvironmentFile=/etc/brickshooter/config.env
 ExecStart=/opt/brickshooter/venv/bin/python -m backend \
     --host ${HOST} --port ${PORT} --ws-max-size ${WS_MAX_SIZE}

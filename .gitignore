@@ -4,6 +4,7 @@
 /v1/tests/__pycache__
 /v2/.venv
 /v2/.pytest_cache
+/deploy/config.env.vds
 /v2/frontend/node_modules
 /v2/frontend/dist
 **/__pycache__
