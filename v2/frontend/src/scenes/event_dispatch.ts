@@ -1,0 +1,56 @@
+/**
+ * Event → scene-effect dispatcher.
+ *
+ * Every DomainEvent variant maps to exactly one SceneEffects method. The
+ * dispatcher is pure logic — no Phaser, no DOM. The Phaser adapter
+ * implements SceneEffects with tweens, particle emitters, etc.
+ *
+ * Switch covers every variant of DomainEvent; the `never`-typed default
+ * makes TypeScript flag a missing case if a new event is added.
+ */
+
+import type { Cell, DomainEvent } from "../transport/events";
+
+export interface SceneEffects {
+  flashLauncher(cell: Cell): void;
+  moveBrick(from: Cell, to: Cell): void;
+  matchCells(cells: Cell[], colorIndex: number): void;
+  crossBrick(from: Cell, to: Cell, colorIndex: number): void;
+  spawnBrick(cell: Cell, colorIndex: number): void;
+  updateScore(total: number, delta: number): void;
+  showGameOver(reason: string, won: boolean): void;
+  resync(): void;
+}
+
+export function dispatchEvent(event: DomainEvent, effects: SceneEffects): void {
+  switch (event.type) {
+    case "BrickShot":
+      effects.flashLauncher(event.launcher_cell);
+      return;
+    case "BrickMoved":
+      effects.moveBrick(event.from_cell, event.to_cell);
+      return;
+    case "BrickMatched":
+      effects.matchCells(event.cells, event.color_index);
+      return;
+    case "BrickCrossed":
+      effects.crossBrick(event.from_cell, event.to_cell, event.color_index);
+      return;
+    case "LaunchZoneRefilled":
+      effects.spawnBrick(event.new_cell, event.color_index);
+      return;
+    case "ScoreChanged":
+      effects.updateScore(event.total, event.delta);
+      return;
+    case "StateReverted":
+      effects.resync();
+      return;
+    case "GameOver":
+      effects.showGameOver(event.reason, event.won);
+      return;
+    default: {
+      const exhaustive: never = event;
+      throw new Error(`unhandled event: ${JSON.stringify(exhaustive)}`);
+    }
+  }
+}
