@@ -37,6 +37,9 @@ from .game_log import (
     log_out,
     log_snapshot,
 )
+from .scoreboard import ScoreBoard, MAX_NAME_LENGTH
+from dataclasses import asdict as _asdict
+from pathlib import Path as _Path
 
 
 app = FastAPI()
@@ -49,17 +52,24 @@ SESSION_TTL_S = int(os.environ.get("BRICKSHOOTER_SESSION_TTL_S", "1800"))  # 30 
 
 
 class _Session:
-    __slots__ = ("game", "last_seen")
+    __slots__ = ("game", "last_seen", "name", "difficulty")
 
-    def __init__(self, game: Game) -> None:
+    def __init__(self, game: Game, difficulty: str) -> None:
         self.game = game
         self.last_seen = time.monotonic()
+        self.name: str = "Anonymous"
+        self.difficulty: str = difficulty
 
     def touch(self) -> None:
         self.last_seen = time.monotonic()
 
 
 SESSIONS: dict[str, _Session] = {}
+
+_SCORES_PATH = _Path(
+    os.environ.get("BRICKSHOOTER_SCORES_FILE", "/var/lib/brickshooter/scores.json")
+)
+SCOREBOARD = ScoreBoard(_SCORES_PATH)
 
 
 def _evict_idle_sessions(now: float | None = None) -> None:
@@ -88,7 +98,7 @@ def _get_or_create_session(sid: str | None, difficulty: str = DEFAULT_DIFFICULTY
     if len(SESSIONS) >= MAX_SESSIONS:
         return None
     new_sid = uuid.uuid4().hex
-    session = _Session(_new_game(difficulty))
+    session = _Session(_new_game(difficulty), difficulty)
     SESSIONS[new_sid] = session
     return new_sid, session
 
@@ -129,12 +139,28 @@ async def game_ws(ws: WebSocket) -> None:
                 log_snapshot(sid, game)
                 continue
 
+            # Register / update the player's display name for score records.
+            if msg_type == "set_name":
+                raw = message.get("name", "")
+                if isinstance(raw, str):
+                    session.name = raw.strip()[:MAX_NAME_LENGTH] or "Anonymous"
+                continue
+
+            # Scoreboard query. Reply with top-N for the requested difficulty
+            # (defaults to the session's current difficulty).
+            if msg_type == "scores":
+                requested = message.get("difficulty") if isinstance(message.get("difficulty"), str) else session.difficulty
+                entries = [_asdict(e) for e in SCOREBOARD.top(difficulty=requested)]
+                await ws.send_json({"type": "scores", "difficulty": requested, "entries": entries})
+                continue
+
             # A new_game with a difficulty payload swaps the underlying Game
             # for one with the requested num_colors. Without a payload, the
             # existing Game is reused and just reset — keeps undo history
             # conventions matching the domain's new_game.
             if msg_type == "new_game" and isinstance(message.get("difficulty"), str):
-                game = _new_game(message["difficulty"])
+                session.difficulty = message["difficulty"]
+                game = _new_game(session.difficulty)
                 session.game = game
                 router = WebInput(game)
                 presenter = WebPresenter()
@@ -153,6 +179,17 @@ async def game_ws(ws: WebSocket) -> None:
                 presenter.on_event(event)
             for frame in presenter.drain():
                 await ws.send_json(frame)
+
+            # Record the final result when the session actually ends.
+            for event in events:
+                if type(event).__name__ == "GameOver" and not getattr(event, "won", False):
+                    SCOREBOARD.record(
+                        name=session.name,
+                        score=getattr(event, "score", 0),
+                        level=getattr(event, "level", 1),
+                        difficulty=session.difficulty,
+                    )
+                    break
 
             # new_game resets state; undo restores an older state; LevelCleared
             # rebuilds the field for the next level. All three need a fresh

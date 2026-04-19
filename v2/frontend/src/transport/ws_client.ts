@@ -27,6 +27,7 @@ export type SocketFactory = (url: string) => WebSocketLike;
 export type SnapshotHandler = (snapshot: Snapshot) => void;
 export type EventHandler = (event: DomainEvent) => void;
 export type SessionHandler = (sessionId: string) => void;
+export type RawHandler = (frame: unknown) => void;
 
 export interface GameSocketOptions {
   reconnectDelayMs?: number;
@@ -39,6 +40,7 @@ export class GameSocket {
   private snapshotHandlers: SnapshotHandler[] = [];
   private eventHandlers: EventHandler[] = [];
   private sessionHandlers: SessionHandler[] = [];
+  private rawHandlers: RawHandler[] = [];
   private closed = false;
   private readonly reconnectDelayMs: number;
 
@@ -70,6 +72,15 @@ export class GameSocket {
     this.sessionHandlers.push(handler);
   }
 
+  /**
+   * Catch-all for protocol frames that aren't a DomainEvent or a Snapshot
+   * (currently the `scores` reply). Handlers receive the parsed JSON object
+   * as-is and do their own typeguard.
+   */
+  onRaw(handler: RawHandler): void {
+    this.rawHandlers.push(handler);
+  }
+
   send(message: object): void {
     if (!this.ws) throw new Error("socket not connected");
     this.ws.send(JSON.stringify(message));
@@ -95,6 +106,15 @@ export class GameSocket {
     }
     if (isSnapshot(frame)) {
       for (const h of this.snapshotHandlers) h(frame);
+      return;
+    }
+    // Frames the client knows about but aren't DomainEvents (e.g. scores
+    // reply, error frames). Give raw handlers a chance first; if any of them
+    // recognise it, stop. Otherwise fall through to decodeEvent and hope it's
+    // a DomainEvent — a genuinely-unknown frame raises there.
+    const typeField = (frame as { type?: unknown }).type;
+    if (typeField === "scores" || typeField === "error") {
+      for (const h of this.rawHandlers) h(frame);
       return;
     }
     const event = decodeEvent(frame);

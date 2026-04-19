@@ -30,7 +30,8 @@ Plain HTTP, port 8000, no TLS. Anyone with the URL can play. The hostname resolv
   ├─ frontend/                      # contents of v2/frontend/dist/
   └─ venv/                          # Python 3.11 venv: fastapi, uvicorn[standard], websockets
 
-/var/lib/brickshooter/              # owned by brickshooter user; reserved for future state
+/var/lib/brickshooter/              # owned by brickshooter user
+  └─ scores.json                    # server-side high-score table (atomic writes)
 /etc/brickshooter/config.env        # env vars consumed by the systemd unit
 /etc/systemd/system/brickshooter.service
 ```
@@ -56,6 +57,7 @@ BRICKSHOOTER_MAX_SESSIONS=64
 BRICKSHOOTER_SESSION_TTL_S=1800
 BRICKSHOOTER_FRONTEND_DIR=/opt/brickshooter/frontend
 BRICKSHOOTER_LOG_LEVEL=INFO
+BRICKSHOOTER_SCORES_FILE=/var/lib/brickshooter/scores.json
 ```
 
 ## How to operate

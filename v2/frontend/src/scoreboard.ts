@@ -1,85 +1,72 @@
 /**
- * localStorage-backed top-N scoreboard. Per-browser, per-difficulty.
+ * Server-side scoreboard client.
  *
- * No server state; the backend stays stateless for scores. If a user moves
- * browsers they start fresh — acceptable trade for a single-player hobby app.
+ * Keeps only the *display name* in localStorage; the actual high-score list
+ * lives on the server (see backend/scoreboard.py). The client asks for the
+ * top-N via a {"type":"scores"} WS message and renders the reply.
+ *
+ * Display name prompt on first visit (if no name stored), then sent to the
+ * server via {"type":"set_name"} on every connect + whenever the user
+ * updates it.
  */
 
 export type Difficulty = "easy" | "normal" | "hard";
 
 export interface ScoreEntry {
+  name: string;
   score: number;
+  level: number;
   difficulty: Difficulty;
-  date: string; //!< ISO 8601
+  date: string;
 }
 
-const STORAGE_KEY = "brickshooter.scores";
-const MAX_ENTRIES = 10;
+const NAME_KEY = "brickshooter.name";
+const MAX_NAME_LENGTH = 24;
 
-export function loadScores(): ScoreEntry[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? (parsed as ScoreEntry[]) : [];
-  } catch {
-    return [];
-  }
+export function getStoredName(): string | null {
+  const raw = localStorage.getItem(NAME_KEY);
+  if (!raw) return null;
+  const cleaned = raw.trim().slice(0, MAX_NAME_LENGTH);
+  return cleaned || null;
 }
 
-/**
- * Record a score if it qualifies for the top-N (within the same difficulty).
- * Returns the index the entry landed at (for highlighting), or -1 if the score
- * didn't make the cut.
- */
-export function recordScore(score: number, difficulty: Difficulty): { entries: ScoreEntry[]; insertedAt: number } {
-  if (score <= 0) return { entries: loadScores(), insertedAt: -1 };
-
-  const existing = loadScores();
-  const peers = existing.filter((e) => e.difficulty === difficulty);
-  const others = existing.filter((e) => e.difficulty !== difficulty);
-
-  const newEntry: ScoreEntry = { score, difficulty, date: new Date().toISOString() };
-  peers.push(newEntry);
-  peers.sort((a, b) => b.score - a.score);
-  const trimmed = peers.slice(0, MAX_ENTRIES);
-  const insertedAt = trimmed.indexOf(newEntry);
-
-  const merged = [...others, ...trimmed];
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
-  return { entries: merged, insertedAt };
-}
-
-export function clearScores(): void {
-  localStorage.removeItem(STORAGE_KEY);
+export function storeName(name: string): string {
+  const cleaned = name.trim().slice(0, MAX_NAME_LENGTH) || "Anonymous";
+  localStorage.setItem(NAME_KEY, cleaned);
+  return cleaned;
 }
 
 /**
- * Render the scoreboard into a target element. Shows top-N of the current
- * difficulty. `highlightIndex` marks a single entry as just-added.
+ * Render a list of ScoreEntry into the target element. `highlightIndex`
+ * marks a single entry (usually the player's just-landed one) in accent.
  */
-export function renderScores(
+export function renderServerScores(
   target: HTMLElement,
   difficulty: Difficulty,
+  entries: ScoreEntry[],
   highlightIndex = -1,
 ): void {
-  const entries = loadScores()
-    .filter((e) => e.difficulty === difficulty)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, MAX_ENTRIES);
-
   const header = `<h3>Top scores — ${difficulty}</h3>`;
   if (entries.length === 0) {
-    target.innerHTML = header + "<p style='opacity:0.6;font-size:13px;margin:0'>no scores yet</p>";
+    target.innerHTML =
+      header + "<p style='opacity:0.6;font-size:13px;margin:0'>no scores yet — be the first!</p>";
     return;
   }
-
   const items = entries
     .map((e, i) => {
       const cls = i === highlightIndex ? ' class="fresh"' : "";
       const date = new Date(e.date).toLocaleDateString();
-      return `<li${cls}><span>${e.score}</span><span style="opacity:0.6">${date}</span></li>`;
+      return `<li${cls}><span>${escapeHTML(e.name)}</span><span>L${e.level}</span><span>${e.score}</span><span style="opacity:0.6">${date}</span></li>`;
     })
     .join("");
   target.innerHTML = header + `<ol>${items}</ol>`;
+}
+
+function escapeHTML(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }

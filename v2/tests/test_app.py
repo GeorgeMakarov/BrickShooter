@@ -144,3 +144,44 @@ class TestMalformedMessage:
             ws.send_json({"type": "teleport"})
             frame = ws.receive_json()
             assert frame["type"] == "error"
+
+
+class TestSetName:
+    def test_set_name_stores_on_session(self):
+        SESSIONS.clear()
+        with TestClient(app).websocket_connect("/ws") as ws:
+            sid, _ = _expect_session_and_snapshot(ws)
+            ws.send_json({"type": "set_name", "name": "Dad"})
+            # No reply expected — state-setter only.
+            ws.send_json({"type": "new_game"})
+            ws.receive_json()  # snapshot
+            assert SESSIONS[sid].name == "Dad"
+
+    def test_set_name_trims_and_caps(self):
+        SESSIONS.clear()
+        with TestClient(app).websocket_connect("/ws") as ws:
+            sid, _ = _expect_session_and_snapshot(ws)
+            ws.send_json({"type": "set_name", "name": "  " + "x" * 100 + "  "})
+            ws.send_json({"type": "new_game"})
+            ws.receive_json()
+            assert len(SESSIONS[sid].name) == 24
+
+
+class TestScoresQuery:
+    def test_scores_query_returns_list(self):
+        SESSIONS.clear()
+        with TestClient(app).websocket_connect("/ws") as ws:
+            _expect_session_and_snapshot(ws)
+            ws.send_json({"type": "scores"})
+            reply = ws.receive_json()
+            assert reply["type"] == "scores"
+            assert "difficulty" in reply
+            assert isinstance(reply["entries"], list)
+
+    def test_scores_query_with_explicit_difficulty(self):
+        SESSIONS.clear()
+        with TestClient(app).websocket_connect("/ws") as ws:
+            _expect_session_and_snapshot(ws)
+            ws.send_json({"type": "scores", "difficulty": "hard"})
+            reply = ws.receive_json()
+            assert reply["difficulty"] == "hard"
