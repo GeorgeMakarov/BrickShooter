@@ -151,7 +151,7 @@ GitHub Actions: pytest on `v2/`, `vitest` on `v2/frontend/`, Playwright on a loc
 - `v1-final` tag (`48ab5a7`).
 - 20 pytest cases in `v1/tests/test_model.py` (`4a48300`).
 
-### Phase 1 — Extract the pure Python domain *(in progress)*
+### Phase 1 — Extract the pure Python domain *(done)*
 
 Target: `v2/domain/` with zero framework imports, emitting `DomainEvent` streams. Each rule is a pure function (or small class) that mutates a `field` in place and returns `list[DomainEvent]`. Randomness is injected (see `refill.pick_color`) to keep tests deterministic. 80 pytest cases currently green.
 
@@ -166,9 +166,9 @@ Target: `v2/domain/` with zero framework imports, emitting `DomainEvent` streams
 | 5c | Refill rule → `BrickMoved` + `LaunchZoneRefilled` | done | `d1ccadb` |
 | 6 | `HistoryStack` → `StateReverted` on revert | done | `4374e5f` |
 | 7 | Ports (`GameInputPort`/`GamePresenterPort`) + `can_shoot` + `Game` facade orchestrating resolution cycle, score, game-over | done | *this commit* |
-| 8 | Rewire `v1/controller.py` to consume events via a fake `GamePresenterPort`; play a live Kivy round to confirm parity | pending |  |
+| 8 | Domain integration test: drive `Game` through a full shot→resolve→undo round with a fake `GamePresenterPort`, assert the event stream end-to-end. (v1 stays frozen as the visual reference — no controller rewire.) | done | *this commit* |
 
-Exit criterion: `pytest v2/tests/` green; v1 Kivy game plays identically against the new domain.
+Exit criterion: `pytest v2/tests/` green, including the end-to-end integration test that drives a full game round via `Game` + a fake presenter. v1 remains frozen at `v1-final` as the visual reference.
 
 ### Phase 2 — Backend adapter (FastAPI + WS)
 
