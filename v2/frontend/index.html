@@ -114,6 +114,13 @@
         display: flex;
         gap: 10px;
       }
+      .overlay-buttons button.primary {
+        background: #3a5485;
+        border-color: #5478b5;
+      }
+      .overlay-buttons button.primary:hover {
+        background: #4c6fa8;
+      }
       .hidden {
         display: none !important;
       }
@@ -147,10 +154,7 @@
     <div id="overlay" class="hidden">
       <p id="overlay-msg"></p>
       <div id="overlay-scores"></div>
-      <div class="overlay-buttons">
-        <button id="overlay-close">Close</button>
-        <button id="overlay-new-game">New Game</button>
-      </div>
+      <div id="overlay-actions" class="overlay-buttons"></div>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>

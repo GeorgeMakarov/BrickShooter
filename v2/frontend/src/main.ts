@@ -25,8 +25,7 @@ const overlayScoresEl = document.getElementById("overlay-scores") as HTMLDivElem
 const newGameBtn = document.getElementById("new-game") as HTMLButtonElement;
 const undoBtn = document.getElementById("undo") as HTMLButtonElement;
 const scoresBtn = document.getElementById("scores") as HTMLButtonElement;
-const overlayNewGameBtn = document.getElementById("overlay-new-game") as HTMLButtonElement;
-const overlayCloseBtn = document.getElementById("overlay-close") as HTMLButtonElement;
+const overlayActionsEl = document.getElementById("overlay-actions") as HTMLDivElement;
 const difficultyEl = document.getElementById("difficulty") as HTMLSelectElement;
 
 // --- state ---------------------------------------------------------------
@@ -63,44 +62,91 @@ function onScore(total: number): void {
   scoreEl.textContent = total.toString();
 }
 
-function showOverlay(opts: { message: string; highlightIndex?: number; mode: "game_over" | "browsing" }): void {
+interface OverlayAction {
+  label: string;
+  handler: () => void;
+  primary?: boolean;
+}
+
+interface OverlayOptions {
+  message: string;
+  showScores?: boolean;
+  highlightIndex?: number;
+  dismissable?: boolean; //!< Escape / backdrop click closes the overlay
+  actions: OverlayAction[];
+}
+
+let dismissableOpen = false;
+
+function showOverlay(opts: OverlayOptions): void {
   overlayMsgEl.textContent = opts.message;
-  renderScores(overlayScoresEl, difficulty, opts.highlightIndex ?? -1);
-  // game-over: only New Game button (game is done, must restart).
-  // browsing:  Close button shown too, so the current game isn't lost.
-  overlayCloseBtn.classList.toggle("hidden", opts.mode !== "browsing");
+
+  if (opts.showScores) {
+    renderScores(overlayScoresEl, difficulty, opts.highlightIndex ?? -1);
+    overlayScoresEl.classList.remove("hidden");
+  } else {
+    overlayScoresEl.classList.add("hidden");
+  }
+
+  overlayActionsEl.innerHTML = "";
+  for (const action of opts.actions) {
+    const btn = document.createElement("button");
+    btn.textContent = action.label;
+    if (action.primary) btn.classList.add("primary");
+    btn.addEventListener("click", action.handler);
+    overlayActionsEl.appendChild(btn);
+  }
+
+  dismissableOpen = !!opts.dismissable;
   overlayEl.classList.remove("hidden");
 }
 
-function onGameOver(reason: string, won: boolean): void {
-  const { insertedAt } = recordScore(currentScore, difficulty);
-  // Game is done — nothing to protect against accidental New Game.
-  hasProgress = false;
-  showOverlay({
-    message: (won ? "🎉  " : "💀  ") + reason,
-    highlightIndex: insertedAt,
-    mode: "game_over",
-  });
-}
-
-function openScoresModal(): void {
-  showOverlay({ message: "High Scores", mode: "browsing" });
-}
-
 function hideOverlay(): void {
+  dismissableOpen = false;
   overlayEl.classList.add("hidden");
 }
 
 function requestNewGame(): void {
+  hideOverlay();
+  hasProgress = false;
   socket.send({ type: "new_game", difficulty });
 }
 
 function confirmAndNewGame(): void {
-  if (hasProgress && !confirm("Start a new game? Current progress will be lost.")) {
+  if (!hasProgress) {
+    requestNewGame();
     return;
   }
-  hideOverlay();
-  requestNewGame();
+  showOverlay({
+    message: "Start a new game? Current progress will be lost.",
+    dismissable: true,
+    actions: [
+      { label: "Keep Playing", handler: hideOverlay },
+      { label: "Start New Game", handler: requestNewGame, primary: true },
+    ],
+  });
+}
+
+function onGameOver(reason: string, won: boolean): void {
+  const { insertedAt } = recordScore(currentScore, difficulty);
+  hasProgress = false; // game already over — no progress to protect
+  showOverlay({
+    message: (won ? "🎉  " : "💀  ") + reason,
+    showScores: true,
+    highlightIndex: insertedAt,
+    actions: [
+      { label: "New Game", handler: requestNewGame, primary: true },
+    ],
+  });
+}
+
+function openScoresModal(): void {
+  showOverlay({
+    message: "High Scores",
+    showScores: true,
+    dismissable: true,
+    actions: [{ label: "Close", handler: hideOverlay }],
+  });
 }
 
 // --- button wiring -------------------------------------------------------
@@ -113,19 +159,17 @@ undoBtn.addEventListener("click", () => {
 
 scoresBtn.addEventListener("click", openScoresModal);
 
-overlayNewGameBtn.addEventListener("click", confirmAndNewGame);
-
-overlayCloseBtn.addEventListener("click", hideOverlay);
-
-// Clicking the backdrop outside the scores panel also dismisses — convenient.
+// Backdrop click + Escape dismiss the overlay only when it's marked dismissable
+// (scores-browsing, confirmation). Game-over isn't dismissable — user must
+// choose.
 overlayEl.addEventListener("click", (event) => {
-  if (event.target === overlayEl && !overlayCloseBtn.classList.contains("hidden")) {
+  if (event.target === overlayEl && dismissableOpen) {
     hideOverlay();
   }
 });
 
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && !overlayCloseBtn.classList.contains("hidden")) {
+  if (event.key === "Escape" && dismissableOpen) {
     hideOverlay();
   }
 });
