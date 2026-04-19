@@ -5,7 +5,12 @@ about to leave the field. Instead, it crosses into the launcher queue on the
 opposite side: existing launcher bricks shift outward (the outermost is
 discarded) and the crosser takes the innermost slot with STAND intention.
 
-One BrickCrossed event per crossing brick.
+Per cross event, emits:
+  - one `BrickMoved` for each populated shifted brick (outer-first, so a
+    client that destroys the destination sprite on overwrite handles the
+    outermost's discard naturally)
+  - one `BrickCrossed` for the new arrival in the innermost slot (emitted
+    last so shifts animate before the new brick lands)
 """
 
 from dataclasses import dataclass
@@ -13,7 +18,7 @@ from typing import Callable, Iterable
 
 from domain.brick import Brick, CellIntention
 from domain.constants import FIELD_SIZE, LAUNCH_ZONE_DEPTH, PLAY_AREA_START, PLAY_AREA_END
-from domain.events import BrickCrossed
+from domain.events import BrickCrossed, BrickMoved, DomainEvent
 
 Field = list[list[Brick]]
 Cell = tuple[int, int]
@@ -28,13 +33,13 @@ class _EdgeCheck:
     #!< innermost -> outermost
 
 
-def handle_board_crossers(field: Field) -> list[BrickCrossed]:
-    events: list[BrickCrossed] = []
+def handle_board_crossers(field: Field) -> list[DomainEvent]:
+    events: list[DomainEvent] = []
     for check in _build_edge_checks():
         for source in check.source_cells:
-            event = _cross_if_applicable(field, source, check.direction, check.dest_queue_for(source))
-            if event is not None:
-                events.append(event)
+            events.extend(
+                _cross_if_applicable(field, source, check.direction, check.dest_queue_for(source))
+            )
     return events
 
 
@@ -43,17 +48,25 @@ def _cross_if_applicable(
     source: Cell,
     direction: CellIntention,
     dest_queue: tuple[Cell, ...],
-) -> BrickCrossed | None:
+) -> list[DomainEvent]:
     sr, sc = source
     brick = field[sr][sc]
     if brick.intention != direction:
-        return None
+        return []
 
-    # Shift launcher queue outward (last cell discarded).
+    events: list[DomainEvent] = []
+
+    # Shift launcher queue outward (outermost cell overwritten, data lost).
+    # Iterate outer-to-inner so each shift's destination is either empty or
+    # being vacated in the same batch. Emit BrickMoved only when the source
+    # is actually populated — VOID cells shifting are silent.
     for i in range(len(dest_queue) - 1, 0, -1):
-        r_dest, c_dest = dest_queue[i]
-        r_prev, c_prev = dest_queue[i - 1]
-        field[r_dest][c_dest] = field[r_prev][c_prev]
+        dst = dest_queue[i]
+        src = dest_queue[i - 1]
+        src_brick = field[src[0]][src[1]]
+        if src_brick.intention != CellIntention.VOID:
+            events.append(BrickMoved(from_cell=src, to_cell=dst))
+        field[dst[0]][dst[1]] = src_brick
 
     # Place crosser in the innermost slot as STAND.
     innermost = dest_queue[0]
@@ -63,7 +76,8 @@ def _cross_if_applicable(
     )
     field[sr][sc] = Brick()
 
-    return BrickCrossed(from_cell=source, to_cell=innermost, color_index=brick.color_index)
+    events.append(BrickCrossed(from_cell=source, to_cell=innermost, color_index=brick.color_index))
+    return events
 
 
 def _build_edge_checks() -> Iterable[_EdgeCheck]:

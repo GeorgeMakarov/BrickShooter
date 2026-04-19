@@ -120,6 +120,10 @@ export class GridScene extends Phaser.Scene implements SpriteLayer, SceneEffects
     const sprite = this.sprites.get(cellKey(from));
     if (!sprite) return;
     this.sprites.delete(cellKey(from));
+    // If the destination already has a sprite (crosser-shift case: the
+    // outermost slot is about to be overwritten by a brick moving in), destroy
+    // it — otherwise we leak a stale sprite under the arriving one.
+    this.destroySpriteAt(to);
     this.sprites.set(cellKey(to), sprite);
     // Intention is unchanged — texture stays whatever the sprite already had.
     this.tweens.add({
@@ -155,6 +159,9 @@ export class GridScene extends Phaser.Scene implements SpriteLayer, SceneEffects
     const sprite = this.sprites.get(cellKey(from));
     if (!sprite) return;
     this.sprites.delete(cellKey(from));
+    // Shift events preceding this cross already vacated `to`; guard against
+    // edge cases (e.g. resync drift) by destroying whatever's there.
+    this.destroySpriteAt(to);
     this.sprites.set(cellKey(to), sprite);
     // Crossers land STAND on the far launcher — mirror the server rule.
     sprite.intention = "STAND";
@@ -201,6 +208,14 @@ export class GridScene extends Phaser.Scene implements SpriteLayer, SceneEffects
   private applySnapshot(snapshot: Snapshot): void {
     renderSnapshot(snapshot, this, CELL_SIZE);
     this.onScore(snapshot.score);
+  }
+
+  private destroySpriteAt(cell: Cell): void {
+    const existing = this.sprites.get(cellKey(cell));
+    if (existing) {
+      existing.image.destroy();
+      this.sprites.delete(cellKey(cell));
+    }
   }
 
   private drawGridLines(): void {
