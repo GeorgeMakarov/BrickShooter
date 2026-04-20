@@ -7,7 +7,9 @@ after that drive the game through the WebInput router.
 
 from fastapi.testclient import TestClient
 
+from backend import app as app_module
 from backend.app import SESSIONS, app
+from backend.scoreboard import ScoreBoard
 from domain.constants import PLAY_AREA_START
 
 
@@ -165,6 +167,52 @@ class TestSetName:
             ws.send_json({"type": "new_game"})
             ws.receive_json()
             assert len(SESSIONS[sid].name) == 24
+
+
+class TestEndGame:
+    def test_end_game_emits_game_over_and_records_score(self, tmp_path, monkeypatch):
+        # Swap the module-level scoreboard for one backed by a tmp file so
+        # the test doesn't write to the real host location.
+        scoreboard = ScoreBoard(tmp_path / "scores.json")
+        monkeypatch.setattr(app_module, "SCOREBOARD", scoreboard)
+
+        SESSIONS.clear()
+        with TestClient(app).websocket_connect("/ws") as ws:
+            sid, _ = _expect_session_and_snapshot(ws)
+            SESSIONS[sid].name = "Dad"
+            SESSIONS[sid].game.score = 420
+            SESSIONS[sid].game.level = 3
+
+            ws.send_json({"type": "end_game"})
+
+            frame = ws.receive_json()
+            assert frame["type"] == "GameOver"
+            assert frame["won"] is False
+            assert frame["score"] == 420
+            assert frame["level"] == 3
+
+        top = scoreboard.top(difficulty="normal")
+        assert len(top) == 1
+        assert top[0].name == "Dad"
+        assert top[0].score == 420
+        assert top[0].level == 3
+
+    def test_end_game_with_zero_score_sends_frame_but_records_nothing(
+        self, tmp_path, monkeypatch
+    ):
+        """Scoreboard.record() is a no-op at score<=0, but the GameOver frame
+        still fires so the client can show its overlay."""
+        scoreboard = ScoreBoard(tmp_path / "scores.json")
+        monkeypatch.setattr(app_module, "SCOREBOARD", scoreboard)
+
+        SESSIONS.clear()
+        with TestClient(app).websocket_connect("/ws") as ws:
+            _, _ = _expect_session_and_snapshot(ws)
+            ws.send_json({"type": "end_game"})
+            frame = ws.receive_json()
+            assert frame["type"] == "GameOver"
+
+        assert scoreboard.top(difficulty="normal") == []
 
 
 class TestScoresQuery:

@@ -389,6 +389,37 @@ class TestGameOver:
         assert go[0].score == 240
 
 
+# --- abandon -----------------------------------------------------------
+
+
+class TestAbandon:
+    def test_abandon_emits_game_over_lost(self):
+        g = empty_game()
+        g.new_game()
+        g.level = 4
+        g.score = 987
+
+        events = g.abandon()
+
+        go = [e for e in events if isinstance(e, GameOver)]
+        assert go and go[0].won is False
+        assert go[0].level == 4
+        assert go[0].score == 987
+
+    def test_abandon_does_not_mutate_state(self):
+        g = empty_game()
+        g.new_game()
+        g.level = 2
+        g.score = 40
+        field_snapshot = [row[:] for row in g.field]
+
+        g.abandon()
+
+        assert g.level == 2
+        assert g.score == 40
+        assert g.field == field_snapshot
+
+
 # --- event ordering ----------------------------------------------------
 
 

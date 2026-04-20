@@ -91,6 +91,13 @@ class Game:
         # flowing on the first action.
         return []
 
+    def abandon(self) -> list[DomainEvent]:
+        # Player chose to end the session early (e.g. switching difficulty
+        # mid-game). Emits GameOver(won=False) so presenters and scoreboard
+        # see the same lifecycle event as a natural loss. State is not reset
+        # here — the subsequent new_game() does that.
+        return [GameOver(reason="Game abandoned.", won=False, level=self.level, score=self.score)]
+
     def shoot(self, cell: Cell) -> list[DomainEvent]:
         # Record pre-shot state; pop if the shot doesn't fire.
         self.history.save(self.field, self.score)

@@ -168,6 +168,28 @@ async def game_ws(ws: WebSocket) -> None:
                 log_snapshot(sid, game)
                 continue
 
+            # Player-initiated end of the current session (e.g. confirmed
+            # "Start New Game" while a game was in progress). Emits the
+            # standard GameOver(won=False) so the scoreboard records the
+            # result and the client shows its normal final-score overlay.
+            if msg_type == "end_game":
+                events = game.abandon()
+                for event in events:
+                    log_out(sid, event)
+                    presenter.on_event(event)
+                for frame in presenter.drain():
+                    await ws.send_json(frame)
+                for event in events:
+                    if type(event).__name__ == "GameOver" and not getattr(event, "won", False):
+                        SCOREBOARD.record(
+                            name=session.name,
+                            score=getattr(event, "score", 0),
+                            level=getattr(event, "level", 1),
+                            difficulty=session.difficulty,
+                        )
+                        break
+                continue
+
             try:
                 events = router.handle_message(message)
             except ValueError as exc:

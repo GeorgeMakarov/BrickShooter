@@ -45,6 +45,11 @@ const difficultyEl = document.getElementById("difficulty") as HTMLSelectElement;
 let currentScore = 0;
 let currentLevel = 1;
 let hasProgress = false;
+// Set when the player confirms Abandon & Start New: the server's resulting
+// GameOver is the closure for the abandon flow (already previewed inline in
+// the confirm dialog), not a fresh event to surface again. onGameOver
+// consumes this flag and skips its usual overlay.
+let suppressNextGameOver = false;
 let difficulty: Difficulty = (localStorage.getItem(DIFFICULTY_KEY) as Difficulty | null) ?? "normal";
 difficultyEl.value = difficulty;
 
@@ -117,8 +122,13 @@ socket.onSession((id) => {
   // Tell the server who we are so score records carry a display name.
   socket.send({ type: "set_name", name: playerName });
 });
-socket.onSnapshot(() => {
-  hasProgress = false;
+socket.onSnapshot((s) => {
+  // A snapshot replaces the board wholesale — after new_game, undo, or
+  // LevelCleared. "Has progress" tracks whether abandoning would lose
+  // something worth warning about, so key it off the incoming score:
+  // fresh boards reset it, ongoing sessions (e.g. level-cleared with
+  // carried score) keep it set.
+  hasProgress = s.score > 0;
 });
 socket.onEvent((event) => {
   if (event.type === "BrickShot") hasProgress = true;
@@ -231,17 +241,35 @@ function requestNewGame(): void {
   socket.send({ type: "new_game", difficulty });
 }
 
-function confirmAndNewGame(): void {
+function abandonAndNewGame(): void {
+  // Single-click commit: record the abandoned game, then start the new
+  // one at the current difficulty. The resulting GameOver event is
+  // suppressed on arrival (see onGameOver) because the confirm dialog
+  // already previewed the final state.
+  hideOverlay();
+  hasProgress = false;
+  suppressNextGameOver = true;
+  socket.send({ type: "end_game" });
+  socket.send({ type: "new_game", difficulty });
+}
+
+async function confirmAndNewGame(): Promise<void> {
   if (!hasProgress) {
     requestNewGame();
     return;
   }
+  // Preview the final result (current score + leaderboard) in the same
+  // dialog as the Keep / Abandon choice, so one click commits.
+  const entries = await requestScores(difficulty);
+  const target = document.createElement("div");
+  renderServerScores(target, difficulty, entries);
   showOverlay({
-    message: "Start a new game? Current progress will be lost.",
+    message: `End current game? Level ${currentLevel}, score ${currentScore} will be recorded.`,
+    scoresHtml: target.innerHTML,
     dismissable: true,
     actions: [
       { label: "Keep Playing", handler: hideOverlay },
-      { label: "Start New Game", handler: requestNewGame, primary: true },
+      { label: "Abandon & Start New", handler: abandonAndNewGame, primary: true },
     ],
   });
 }
@@ -266,6 +294,14 @@ async function onGameOver(reason: string, won: boolean, level: number, score: nu
   const finalScore = score || currentScore;
   const finalLevel = level || currentLevel;
   hasProgress = false;
+
+  // Abandon flow: the confirm dialog already showed the final score and
+  // the leaderboard; the follow-up new_game snapshot will repaint the
+  // board. Nothing more to do here.
+  if (suppressNextGameOver) {
+    suppressNextGameOver = false;
+    return;
+  }
 
   // Server has already recorded the score; fetch the fresh top-N and
   // highlight the player's entry (matching name + score + level).
