@@ -1,6 +1,6 @@
 [project]
 name = "brickshooter"
-version = "2.1.0"
+version = "2.2.0"
 description = "Color-match puzzle game — web-native port of the 1990s Delphi original."
 readme = { file = "../README.md", content-type = "text/markdown" }
 requires-python = ">=3.10"

@@ -5,6 +5,7 @@
 
 import * as Phaser from "phaser";
 
+import { getA11y, setA11y } from "./a11y";
 import { Sfx } from "./audio/sfx";
 import { GridScene } from "./scenes/GridScene";
 import { GameSocket } from "./transport/ws_client";
@@ -38,6 +39,7 @@ const scoresBtn = document.getElementById("scores") as HTMLButtonElement;
 const nameBtn = document.getElementById("name-btn") as HTMLButtonElement;
 const playerNameEl = document.getElementById("player-name") as HTMLSpanElement;
 const muteBtn = document.getElementById("mute-btn") as HTMLButtonElement;
+const settingsBtn = document.getElementById("settings-btn") as HTMLButtonElement;
 const difficultyEl = document.getElementById("difficulty") as HTMLSelectElement;
 
 // --- state ---------------------------------------------------------------
@@ -319,6 +321,65 @@ async function onGameOver(reason: string, won: boolean, level: number, score: nu
   });
 }
 
+function openSettingsModal(): void {
+  // Three independent toggles, each applying an additional visual cue.
+  // Saved to localStorage and pushed to subscribers (Phaser scene) the
+  // moment the checkbox changes — no Apply button needed.
+  const current = getA11y();
+  const rows: Array<{ key: keyof typeof current; label: string; hint: string }> = [
+    {
+      key: "palette",
+      label: "High-contrast colours",
+      hint: "Swap the palette for one where every colour sits at a distinct brightness level.",
+    },
+    {
+      key: "glyphs",
+      label: "Shape glyphs",
+      hint: "Draw a small shape in the corner of each brick — shape identifies the colour.",
+    },
+    {
+      key: "patterns",
+      label: "Pattern overlay",
+      hint: "Fill each brick colour with its own pattern (stripes, dots, hatching…).",
+    },
+  ];
+
+  const list = document.createElement("div");
+  list.className = "a11y-list";
+  for (const row of rows) {
+    const label = document.createElement("label");
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.checked = current[row.key];
+    checkbox.addEventListener("change", () => {
+      setA11y({ ...getA11y(), [row.key]: checkbox.checked });
+    });
+    const text = document.createElement("span");
+    const title = document.createElement("span");
+    title.textContent = row.label;
+    const hint = document.createElement("small");
+    hint.textContent = row.hint;
+    text.appendChild(title);
+    text.appendChild(hint);
+    label.appendChild(checkbox);
+    label.appendChild(text);
+    list.appendChild(label);
+  }
+
+  showOverlay({
+    message: "Accessibility",
+    scoresHtml: list.outerHTML,
+    dismissable: true,
+    actions: [{ label: "Close", handler: hideOverlay }],
+  });
+
+  // showOverlay sets innerHTML from the string, so the live DOM references
+  // and their listeners are lost. Replace the rendered copy with the live
+  // list so toggles actually fire handlers.
+  overlayScoresEl.innerHTML = "";
+  overlayScoresEl.appendChild(list);
+}
+
 async function openScoresModal(): Promise<void> {
   const entries = await requestScores(difficulty);
   const target = document.createElement("div");
@@ -336,6 +397,7 @@ async function openScoresModal(): Promise<void> {
 newGameBtn.addEventListener("click", confirmAndNewGame);
 undoBtn.addEventListener("click", () => socket.send({ type: "undo" }));
 scoresBtn.addEventListener("click", openScoresModal);
+settingsBtn.addEventListener("click", openSettingsModal);
 
 nameBtn.addEventListener("click", async () => {
   const next = await askForName({ currentName: playerName, dismissable: true });

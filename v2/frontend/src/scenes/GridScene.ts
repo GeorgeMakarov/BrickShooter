@@ -15,10 +15,11 @@
 
 import * as Phaser from "phaser";
 
+import { getA11y, onA11yChange, type A11ySettings } from "../a11y";
 import type { Sfx } from "../audio/sfx";
 import type { Cell, Snapshot } from "../transport/events";
 import type { GameSocket } from "../transport/ws_client";
-import { BRICK_COLORS, colorFor } from "./colors";
+import { colorFor, getActivePalette } from "./colors";
 import { dispatchEvent, type SceneEffects } from "./event_dispatch";
 import { renderSnapshot, type PlaceArgs, type SpriteLayer } from "./grid_render";
 import { brickTextureKey, generateBrickTextures } from "./skin";
@@ -82,7 +83,7 @@ export class GridScene extends Phaser.Scene implements SpriteLayer, SceneEffects
   }
 
   create(): void {
-    generateBrickTextures(this, BRICK_SIZE);
+    generateBrickTextures(this, BRICK_SIZE, getA11y());
     this.generateParticleTexture();
     this.generateHaloTexture();
     this.cameras.main.setBackgroundColor(BOARD_BG);
@@ -92,6 +93,22 @@ export class GridScene extends Phaser.Scene implements SpriteLayer, SceneEffects
     this.wireInput();
     this.socket.onSnapshot((s) => this.applySnapshot(s));
     this.socket.onEvent((e) => dispatchEvent(e, this));
+
+    // Regenerate textures and repaint every live sprite when the player
+    // toggles an accessibility setting. Cheap because each setting combo
+    // has its own cached texture key after its first paint.
+    onA11yChange((settings) => this.rebuildSkins(settings));
+  }
+
+  private brickKey(intention: string, colorIndex: number): string {
+    return brickTextureKey(intention, colorIndex, getA11y());
+  }
+
+  private rebuildSkins(settings: A11ySettings): void {
+    generateBrickTextures(this, BRICK_SIZE, settings);
+    for (const sprite of this.sprites.values()) {
+      sprite.image.setTexture(brickTextureKey(sprite.intention, sprite.colorIndex, settings));
+    }
   }
 
   /**
@@ -141,7 +158,7 @@ export class GridScene extends Phaser.Scene implements SpriteLayer, SceneEffects
     const image = this.add.image(
       args.x + CELL_SIZE / 2,
       args.y + CELL_SIZE / 2,
-      brickTextureKey(args.intention, args.colorIndex),
+      this.brickKey(args.intention, args.colorIndex),
     );
     this.sprites.set(args.id, {
       image,
@@ -192,7 +209,7 @@ export class GridScene extends Phaser.Scene implements SpriteLayer, SceneEffects
     const sprite = this.sprites.get(cellKey(cell));
     if (!sprite) return;
     sprite.intention = direction;
-    sprite.image.setTexture(brickTextureKey(direction, sprite.colorIndex));
+    sprite.image.setTexture(this.brickKey(direction, sprite.colorIndex));
   }
 
   moveBrick(from: Cell, to: Cell): void {
@@ -208,7 +225,7 @@ export class GridScene extends Phaser.Scene implements SpriteLayer, SceneEffects
     // intention — covers the case where a previous cross left the sprite with
     // a stale directional texture because its onComplete was cancelled by a
     // later move. The texture always matches the server-authoritative state.
-    sprite.image.setTexture(brickTextureKey(sprite.intention, sprite.colorIndex));
+    sprite.image.setTexture(this.brickKey(sprite.intention, sprite.colorIndex));
 
     // BrickMoved events can stack faster than the 120ms tween when the shot
     // traverses several cells. Kill any in-flight tweens on the sprite and
@@ -394,7 +411,7 @@ export class GridScene extends Phaser.Scene implements SpriteLayer, SceneEffects
     // later move in the same burst would whisk the sprite away and the
     // onComplete guard would skip the update, leaving a stale arrow forever.
     sprite.intention = "STAND";
-    sprite.image.setTexture(brickTextureKey("STAND", sprite.colorIndex));
+    sprite.image.setTexture(this.brickKey("STAND", sprite.colorIndex));
     this.tweens.add({
       targets: sprite.image,
       x: to[1] * CELL_SIZE + CELL_SIZE / 2,
@@ -409,7 +426,7 @@ export class GridScene extends Phaser.Scene implements SpriteLayer, SceneEffects
     const image = this.add.image(
       c * CELL_SIZE + CELL_SIZE / 2,
       r * CELL_SIZE + CELL_SIZE / 2,
-      brickTextureKey("STAND", colorIndex),
+      this.brickKey("STAND", colorIndex),
     );
     image.setAlpha(0);
     this.sprites.set(cellKey(cell), { image, intention: "STAND", colorIndex });
@@ -574,7 +591,7 @@ export class GridScene extends Phaser.Scene implements SpriteLayer, SceneEffects
    */
   private emitConfetti(x: number, y: number): void {
     const lifespan = 1500;
-    for (const colour of BRICK_COLORS) {
+    for (const colour of getActivePalette()) {
       const emitter = this.add.particles(x, y, "particle", {
         speed: { min: 150, max: 360 },
         angle: { min: 0, max: 360 },

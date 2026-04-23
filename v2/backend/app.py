@@ -48,7 +48,7 @@ DIFFICULTY_COLORS: dict[str, int] = {"easy": 5, "normal": 7, "hard": 9}
 DEFAULT_DIFFICULTY = "normal"
 
 MAX_SESSIONS = int(os.environ.get("BRICKSHOOTER_MAX_SESSIONS", "64"))
-SESSION_TTL_S = int(os.environ.get("BRICKSHOOTER_SESSION_TTL_S", "1800"))  # 30 min
+SESSION_TTL_S = int(os.environ.get("BRICKSHOOTER_SESSION_TTL_S", "604800"))  # 7 days
 
 
 class _Session:

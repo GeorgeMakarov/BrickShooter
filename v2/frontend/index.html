@@ -130,6 +130,42 @@
       .mute-btn.muted {
         opacity: 0.55;
       }
+      .icon-row {
+        display: flex;
+        gap: 6px;
+        align-items: center;
+      }
+
+      /* Accessibility settings — checkbox list inside the generic overlay. */
+      .a11y-list {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        background: #13213a;
+        border: 1px solid #2c3f5e;
+        border-radius: 6px;
+        padding: 12px 18px;
+        min-width: 260px;
+        text-align: left;
+      }
+      .a11y-list label {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-size: 13px;
+        cursor: pointer;
+      }
+      .a11y-list label small {
+        display: block;
+        font-size: 11px;
+        opacity: 0.7;
+        margin-top: 2px;
+      }
+      .a11y-list input[type="checkbox"] {
+        width: 16px;
+        height: 16px;
+        cursor: pointer;
+      }
       .name-btn small {
         display: block;
         font-size: 11px;
@@ -236,7 +272,10 @@
           <small>Player</small>
           <span id="player-name">—</span>
         </button>
-        <button id="mute-btn" class="mute-btn" title="Toggle sound">🔊</button>
+        <div class="icon-row">
+          <button id="mute-btn" class="mute-btn" title="Toggle sound">🔊</button>
+          <button id="settings-btn" class="mute-btn" title="Accessibility settings">⚙</button>
+        </div>
       </div>
 
       <div class="corner corner-tr">
